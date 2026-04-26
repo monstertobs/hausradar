@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HausRadar</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="logo">&#x1F4E1; HausRadar</h1>
+    <nav>
+      <a href="index.html" class="active">Übersicht</a>
+      <a href="profiles.html">Analyse</a>
+      <a href="settings.html">Einstellungen</a>
+    </nav>
+    <span id="status-badge" class="badge badge--connecting">Verbinde …</span>
+  </header>
+
+  <main>
+
+    <!-- Grundriss -->
+    <section class="card">
+      <h2>Grundriss</h2>
+      <div class="floorplan-wrap">
+        <div id="floorplan-container">
+          <p class="muted" style="padding:20px">Lade Grundriss …</p>
+        </div>
+      </div>
+      <div class="fp-legend">
+        <span class="fp-legend-item">
+          <span class="fp-legend-dot fp-legend-idle"></span>ruhig
+        </span>
+        <span class="fp-legend-item">
+          <span class="fp-legend-dot fp-legend-active"></span>aktiv
+        </span>
+        <span class="fp-legend-item">
+          <span class="fp-legend-dot fp-legend-recent"></span>zuletzt aktiv
+        </span>
+        <span class="fp-legend-item">
+          <span class="fp-legend-dot fp-legend-offline"></span>offline
+        </span>
+        <span class="fp-legend-item">
+          <svg width="14" height="14" viewBox="0 0 14 14" style="flex-shrink:0">
+            <circle cx="7" cy="7" r="3.5" fill="#164e63" stroke="#22d3ee" stroke-width="1"/>
+          </svg>
+          Sensor
+        </span>
+        <span class="fp-legend-item">
+          <svg width="14" height="14" viewBox="0 0 14 14" style="flex-shrink:0">
+            <circle cx="7" cy="7" r="4" fill="#4ade80" opacity=".9"/>
+            <circle cx="7" cy="7" r="7" fill="none" stroke="#4ade80" stroke-width="1" opacity=".3"/>
+          </svg>
+          Ziel
+        </span>
+      </div>
+    </section>
+
+    <!-- System-Status -->
+    <section class="card">
+      <h2>System-Status</h2>
+      <div class="info-grid">
+        <span class="info-label">Backend</span>
+        <span id="health-status" class="info-value">–</span>
+        <span class="info-label">WebSocket</span>
+        <span id="ws-status" class="info-value">–</span>
+        <span class="info-label">Räume</span>
+        <span id="room-count" class="info-value">–</span>
+        <span class="info-label">Sensoren</span>
+        <span id="sensor-count" class="info-value">–</span>
+      </div>
+    </section>
+
+    <!-- Räume -->
+    <section class="card">
+      <h2>Räume</h2>
+      <div id="room-list" class="room-grid">
+        <p class="muted">Lade Räume …</p>
+      </div>
+    </section>
+
+    <!-- Sensoren -->
+    <section class="card">
+      <h2>Sensoren</h2>
+      <div id="sensor-list" class="sensor-grid">
+        <p class="muted">Lade Sensoren …</p>
+      </div>
+    </section>
+
+    <!-- Live-Debug -->
+    <section class="card" id="live-card">
+      <h2>Live-Daten <span id="live-counter" class="live-counter"></span></h2>
+      <div class="live-header">
+        <span class="info-label">Letztes Update</span>
+        <span id="live-timestamp" class="info-value muted">–</span>
+      </div>
+      <pre id="live-debug" class="debug-json">Warte auf WebSocket-Daten …</pre>
+    </section>
+
+  </main>
+
+  <script src="api.js"></script>
+  <script src="floorplan.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

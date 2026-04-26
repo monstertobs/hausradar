@@ -1,0 +1,55 @@
+[
+  {
+    "id": "wohnzimmer",
+    "name": "Wohnzimmer",
+    "width_mm": 6000,
+    "height_mm": 4500,
+    "floorplan": { "x": 10, "y": 10, "width": 300, "height": 225 },
+    "zones": [
+      { "id": "sofa", "name": "Sofa-Bereich", "x_mm": 3500, "y_mm": 2500, "width_mm": 2000, "height_mm": 1500 },
+      { "id": "tv", "name": "TV-Bereich", "x_mm": 500, "y_mm": 500, "width_mm": 2000, "height_mm": 1500 }
+    ]
+  },
+  {
+    "id": "flur",
+    "name": "Flur",
+    "width_mm": 4000,
+    "height_mm": 1500,
+    "floorplan": { "x": 320, "y": 10, "width": 200, "height": 75 },
+    "zones": [
+      { "id": "eingang", "name": "Eingang", "x_mm": 0, "y_mm": 0, "width_mm": 1000, "height_mm": 1500 }
+    ]
+  },
+  {
+    "id": "kueche",
+    "name": "Küche",
+    "width_mm": 4000,
+    "height_mm": 3000,
+    "floorplan": { "x": 320, "y": 95, "width": 200, "height": 150 },
+    "zones": [
+      { "id": "kochfeld", "name": "Kochfeld", "x_mm": 0, "y_mm": 0, "width_mm": 1500, "height_mm": 1000 },
+      { "id": "esstisch", "name": "Esstisch", "x_mm": 1500, "y_mm": 1500, "width_mm": 2000, "height_mm": 1500 }
+    ]
+  },
+  {
+    "id": "keller",
+    "name": "Keller",
+    "width_mm": 8000,
+    "height_mm": 5000,
+    "floorplan": { "x": 10, "y": 245, "width": 400, "height": 250 },
+    "zones": [
+      { "id": "lager", "name": "Lagerbereich", "x_mm": 0, "y_mm": 0, "width_mm": 4000, "height_mm": 5000 }
+    ]
+  },
+  {
+    "id": "werkstatt",
+    "name": "Werkstatt",
+    "width_mm": 5000,
+    "height_mm": 4000,
+    "floorplan": { "x": 420, "y": 245, "width": 250, "height": 200 },
+    "zones": [
+      { "id": "werkbank", "name": "Werkbank", "x_mm": 0, "y_mm": 0, "width_mm": 2500, "height_mm": 1000 },
+      { "id": "maschinen", "name": "Maschinenbereich", "x_mm": 2500, "y_mm": 0, "width_mm": 2500, "height_mm": 4000 }
+    ]
+  }
+]

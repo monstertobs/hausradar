@@ -1,0 +1,28 @@
+{
+  "environment": "development",
+  "mqtt": {
+    "host": "localhost",
+    "port": 1883,
+    "topic": "hausradar/sensor/+/state",
+    "reconnect_delay_seconds": 5
+  },
+  "database": {
+    "path": "data/hausradar.db",
+    "retention_days": 30,
+    "max_writes_per_second_per_sensor": 2
+  },
+  "websocket": {
+    "broadcast_interval_ms": 100
+  },
+  "live": {
+    "sensor_offline_timeout_seconds": 10,
+    "recent_activity_timeout_seconds": 30
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "api_key": "",
+    "allowed_origins": [],
+    "body_limit_bytes": 65536
+  }
+}

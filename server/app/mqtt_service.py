@@ -1,0 +1,195 @@
+"""
+MQTT-Service für HausRadar.
+
+Subscribed auf hausradar/sensor/+/state, verarbeitet eingehende
+Sensor-Payloads identisch zu POST /api/simulate/motion und broadcastet
+Updates per WebSocket an alle verbundenen Browser.
+"""
+
+import asyncio
+import json
+import logging
+import threading
+from typing import Any, Dict, Optional
+
+import paho.mqtt.client as mqtt
+
+from app.coordinate_transform import full_transform
+from app import database as db
+from app import live_state
+from app.websocket_service import manager as ws_manager
+
+logger = logging.getLogger(__name__)
+
+
+class MqttService:
+    def __init__(self) -> None:
+        self._client:     Optional[mqtt.Client] = None
+        self._connected:  bool = False
+        self._app:        Any  = None
+        self._topic:      str  = ""
+
+    # ------------------------------------------------------------------
+    # Öffentliche API
+    # ------------------------------------------------------------------
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    def start(self, app: Any) -> None:
+        self._app = app
+        cfg = app.state.settings.get("mqtt", {})
+        host            = cfg.get("host", "localhost")
+        port            = cfg.get("port", 1883)
+        self._topic     = cfg.get("topic", "hausradar/sensor/+/state")
+        reconnect_delay = cfg.get("reconnect_delay_seconds", 5)
+
+        client = mqtt.Client(client_id="hausradar-server")
+        client.reconnect_delay_set(min_delay=1, max_delay=reconnect_delay * 4)
+        client.on_connect    = self._on_connect
+        client.on_disconnect = self._on_disconnect
+        client.on_message    = self._on_message
+        self._client = client
+
+        try:
+            client.connect_async(host, port, keepalive=60)
+            client.loop_start()
+            logger.info("MQTT-Service gestartet (Broker: %s:%d, Topic: %s)",
+                        host, port, self._topic)
+        except Exception as exc:
+            logger.warning("MQTT Verbindung nicht möglich: %s – Service läuft ohne Broker.", exc)
+
+    def stop(self) -> None:
+        if self._client is None:
+            return
+        try:
+            self._client.loop_stop()
+            self._client.disconnect()
+        except Exception:
+            pass
+        logger.info("MQTT-Service gestoppt.")
+
+    # ------------------------------------------------------------------
+    # paho-Callbacks (laufen im MQTT-Thread)
+    # ------------------------------------------------------------------
+
+    def _on_connect(self, client: mqtt.Client, userdata: Any,
+                    flags: dict, rc: int) -> None:
+        if rc == 0:
+            self._connected = True
+            client.subscribe(self._topic)
+            logger.info("MQTT verbunden, subscribed: %s", self._topic)
+        else:
+            logger.warning("MQTT Verbindung abgelehnt (rc=%d)", rc)
+
+    def _on_disconnect(self, client: mqtt.Client, userdata: Any, rc: int) -> None:
+        self._connected = False
+        if rc != 0:
+            logger.info("MQTT getrennt (rc=%d), warte auf Reconnect …", rc)
+
+    def _on_message(self, client: mqtt.Client, userdata: Any,
+                    msg: mqtt.MQTTMessage) -> None:
+        try:
+            payload = json.loads(msg.payload.decode("utf-8"))
+        except Exception as exc:
+            logger.warning("MQTT Payload nicht lesbar: %s", exc)
+            return
+        # Verarbeitung in eigenem Thread, um MQTT-Loop nicht zu blockieren
+        threading.Thread(target=self._process, args=(payload,), daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Payload verarbeiten (sync, in separatem Thread)
+    # ------------------------------------------------------------------
+
+    def _process(self, payload: Dict[str, Any]) -> None:
+        app = self._app
+        try:
+            sensor_id    = payload.get("sensor_id")
+            room_id      = payload.get("room_id")
+            timestamp_ms = payload.get("timestamp_ms")
+            targets_raw  = payload.get("targets", [])
+
+            if not sensor_id or not room_id or timestamp_ms is None:
+                logger.warning("MQTT: Pflichtfelder fehlen im Payload")
+                return
+
+            sensors = app.state.sensors
+            rooms   = app.state.rooms
+
+            sensor = next((s for s in sensors if s["id"] == sensor_id), None)
+            if sensor is None:
+                logger.warning("MQTT: Unbekannter Sensor '%s'", sensor_id)
+                return
+
+            if sensor["room_id"] != room_id:
+                logger.warning("MQTT: room_id-Mismatch für Sensor '%s'", sensor_id)
+                return
+
+            room = next((r for r in rooms if r["id"] == room_id), None)
+            if room is None:
+                logger.warning("MQTT: Unbekannter Raum '%s'", room_id)
+                return
+
+            enriched = []
+            for t in targets_raw:
+                if t.get("y_mm", -1) < 0:
+                    continue
+                tf = full_transform(sensor, room,
+                                    {"x_mm": t["x_mm"], "y_mm": t["y_mm"]})
+                enriched.append({
+                    "id":          t.get("id", 0),
+                    "x_mm":        t["x_mm"],
+                    "y_mm":        t["y_mm"],
+                    "room_x_mm":   round(tf["room_x_mm"],  1),
+                    "room_y_mm":   round(tf["room_y_mm"],  1),
+                    "floorplan_x": round(tf["floorplan_x"], 3),
+                    "floorplan_y": round(tf["floorplan_y"], 3),
+                    "inside_room": tf["inside_room"],
+                    "zone_id":     tf["zone_id"],
+                    "speed_mm_s":  t.get("speed_mm_s",  0.0),
+                    "distance_mm": t.get("distance_mm", 0.0),
+                    "angle_deg":   t.get("angle_deg"),
+                })
+
+            live_state.update(sensor_id, {
+                "sensor_id":    sensor_id,
+                "room_id":      room_id,
+                "timestamp_ms": timestamp_ms,
+                "target_count": len(enriched),
+                "targets":      enriched,
+            })
+
+            # DB schreiben (sync, rate-limited)
+            max_writes = app.state.settings.get("database", {}).get(
+                "max_writes_per_second_per_sensor", 2
+            )
+            try:
+                db.record_motion(app.state.db_path, sensor_id, room_id,
+                                 timestamp_ms, enriched, max_writes)
+            except Exception as exc:
+                logger.warning("MQTT DB-Schreiben fehlgeschlagen: %s", exc)
+
+            # WebSocket-Broadcast (async → Event-Loop des Hauptthreads)
+            if ws_manager.connection_count > 0:
+                timeout = app.state.settings.get("live", {}).get(
+                    "sensor_offline_timeout_seconds", 10
+                )
+                response = live_state.build_response(timeout)
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        ws_manager.broadcast(response),
+                        app.state.event_loop,
+                    )
+                except Exception as exc:
+                    logger.warning("MQTT WS-Broadcast fehlgeschlagen: %s", exc)
+
+            logger.debug("MQTT verarbeitet: sensor=%s targets=%d",
+                         sensor_id, len(enriched))
+
+        except Exception as exc:
+            logger.warning("MQTT _process Fehler: %s", exc)
+
+
+# Globale Singleton-Instanz
+service = MqttService()

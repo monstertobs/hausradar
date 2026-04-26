@@ -1,0 +1,19 @@
+[
+  {
+    "id": "beispielraum",
+    "name": "Beispielraum",
+    "width_mm": 5000,
+    "height_mm": 4000,
+    "floorplan": { "x": 10, "y": 10, "width": 250, "height": 200 },
+    "zones": [
+      {
+        "id": "zone1",
+        "name": "Zone 1",
+        "x_mm": 0,
+        "y_mm": 0,
+        "width_mm": 2500,
+        "height_mm": 4000
+      }
+    ]
+  }
+]

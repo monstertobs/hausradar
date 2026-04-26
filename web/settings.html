@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HausRadar – Einstellungen</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="logo">&#x1F4E1; HausRadar</h1>
+    <nav>
+      <a href="index.html">Übersicht</a>
+      <a href="profiles.html">Analyse</a>
+      <a href="settings.html" class="active">Einstellungen</a>
+    </nav>
+    <span id="status-badge" class="badge badge--connecting">Verbinde …</span>
+  </header>
+
+  <main>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- System-Status                                                        -->
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2>SYSTEM-STATUS</h2>
+      <div id="health-grid" class="health-grid">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Räume                                                                -->
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2>RÄUME</h2>
+      <div id="settings-rooms" class="room-grid">
+        <p class="muted">Lade Räume …</p>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Sensoren                                                             -->
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2>SENSOREN</h2>
+      <div id="settings-sensors" class="sensor-grid">
+        <p class="muted">Lade Sensoren …</p>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Ressourcen                                                           -->
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2>RESSOURCEN</h2>
+      <ul class="resources-list">
+        <li><a href="/api/health" target="_blank">API Health-Check</a></li>
+        <li><a href="/api/rooms" target="_blank">Konfiguration: Räume (JSON)</a></li>
+        <li><a href="/api/sensors" target="_blank">Konfiguration: Sensoren (JSON)</a></li>
+        <li><a href="/api/history/sessions?limit=20" target="_blank">Letzte Sitzungen (JSON)</a></li>
+      </ul>
+    </section>
+
+  </main>
+
+  <script src="api.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "radar_beispielraum",
+    "name": "Radar Beispielraum",
+    "room_id": "beispielraum",
+    "x_mm": 2500,
+    "y_mm": 0,
+    "mount_height_mm": 2200,
+    "rotation_deg": 0,
+    "enabled": true
+  }
+]

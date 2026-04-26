@@ -1,0 +1,11 @@
+# HausRadar – Mosquitto ACL-Datei (Beispiel)
+#
+# Pfad in mosquitto.conf eintragen: acl_file /etc/mosquitto/hausradar-acl
+#
+# Benutzer "hausradar-sensor" (ESP32): darf nur auf Sensor-Topics publishen
+user hausradar-sensor
+topic write hausradar/sensor/+/state
+
+# Benutzer "hausradar-server" (Backend): darf nur subscriben
+user hausradar-server
+topic read hausradar/sensor/+/state

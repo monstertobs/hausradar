@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HausRadar – Analyse</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="logo">&#x1F4E1; HausRadar</h1>
+    <nav>
+      <a href="index.html">Übersicht</a>
+      <a href="profiles.html" class="active">Analyse</a>
+      <a href="settings.html">Einstellungen</a>
+    </nav>
+    <span id="status-badge" class="badge badge--connecting">Verbinde …</span>
+  </header>
+
+  <main>
+
+    <!-- Filter-Leiste -->
+    <section class="card">
+      <div class="profile-filters">
+        <div class="filter-group">
+          <span class="filter-label">Zeitraum</span>
+          <div class="btn-group">
+            <button class="btn active" data-days="7">7 Tage</button>
+            <button class="btn"        data-days="14">14 Tage</button>
+            <button class="btn"        data-days="30">30 Tage</button>
+          </div>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label" for="room-filter">Raum</label>
+          <select id="room-filter" class="filter-select">
+            <option value="">Alle Räume</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stunden-Balkendiagramm -->
+    <section class="card">
+      <h2>Aktivität nach Uhrzeit</h2>
+      <div id="chart-hourly" class="bar-chart">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- Raumvergleich -->
+    <section class="card">
+      <h2>Raumvergleich</h2>
+      <div id="chart-rooms" class="hbar-chart">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- Zonenaktivität -->
+    <section class="card">
+      <h2>Zonenaktivität</h2>
+      <div id="chart-zones" class="hbar-chart">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- 7×24 Heatmap -->
+    <section class="card">
+      <h2>Wochenmuster</h2>
+      <div id="chart-heatmap">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- Letzte Bewegungssitzungen -->
+    <section class="card">
+      <h2>Letzte Sitzungen</h2>
+      <div id="chart-sessions">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="api.js"></script>
+  <script src="charts.js"></script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "radar_wohnzimmer",
+    "name": "Radar Wohnzimmer",
+    "room_id": "wohnzimmer",
+    "x_mm": 3000,
+    "y_mm": 0,
+    "mount_height_mm": 2200,
+    "rotation_deg": 0,
+    "enabled": true
+  },
+  {
+    "id": "radar_flur",
+    "name": "Radar Flur",
+    "room_id": "flur",
+    "x_mm": 2000,
+    "y_mm": 0,
+    "mount_height_mm": 2200,
+    "rotation_deg": 0,
+    "enabled": true
+  },
+  {
+    "id": "radar_kueche",
+    "name": "Radar Küche",
+    "room_id": "kueche",
+    "x_mm": 2000,
+    "y_mm": 0,
+    "mount_height_mm": 2200,
+    "rotation_deg": 0,
+    "enabled": true
+  },
+  {
+    "id": "radar_keller",
+    "name": "Radar Keller",
+    "room_id": "keller",
+    "x_mm": 4000,
+    "y_mm": 0,
+    "mount_height_mm": 2200,
+    "rotation_deg": 0,
+    "enabled": true
+  },
+  {
+    "id": "radar_werkstatt",
+    "name": "Radar Werkstatt",
+    "room_id": "werkstatt",
+    "x_mm": 2500,
+    "y_mm": 0,
+    "mount_height_mm": 2200,
+    "rotation_deg": 0,
+    "enabled": true
+  }
+]
