@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HausRadar – Kalibrierung</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="logo">&#x1F4E1; HausRadar</h1>
+    <nav>
+      <a href="index.html">Übersicht</a>
+      <a href="profiles.html">Analyse</a>
+      <a href="settings.html">Einstellungen</a>
+      <a href="calibrate.html" class="active">Kalibrierung</a>
+    </nav>
+    <span id="status-badge" class="badge badge--connecting">Verbinde …</span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>RAUM-KALIBRIERUNG</h2>
+      <p class="muted" style="margin-bottom:20px">
+        Laufe die Ecken deines Raums und deine Möbel ab – HausRadar berechnet
+        daraus automatisch Raummaße und Sensorposition.
+      </p>
+
+      <!-- ── Schritt 0: Sensor/Raum wählen ── -->
+      <div id="step-select" class="wizard-panel">
+        <h3>Sensor &amp; Raum wählen</h3>
+        <p class="wizard-hint">Wähle den Sensor den du kalibrieren möchtest.</p>
+        <div class="add-furniture-form" style="grid-template-columns:1fr 1fr auto">
+          <div class="form-group">
+            <label class="form-label">Sensor</label>
+            <select id="sel-sensor" class="form-select">
+              <option value="">Lade …</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Raum</label>
+            <select id="sel-room" class="form-select">
+              <option value="">–</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">&nbsp;</label>
+            <button id="btn-start" class="btn-mark" disabled>Starten →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Fortschrittsbalken ── -->
+      <div id="wizard-progress" style="display:none; margin: 20px 0">
+        <div class="wizard-steps" id="wizard-steps-bar"></div>
+      </div>
+
+      <!-- ── Wizard-Inhalte (werden per JS eingeblendet) ── -->
+      <div id="wizard-body" style="display:none"></div>
+    </section>
+  </main>
+
+  <script src="api.js"></script>
+  <script src="calibrate.js"></script>
+</body>
+</html>

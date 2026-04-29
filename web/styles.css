@@ -500,6 +500,257 @@ main {
 
 .error-text { color: var(--red); }
 
+/* ===== Möbel im Grundriss ===== */
+.furniture-rect {
+  fill-opacity: .25;
+  stroke-opacity: .7;
+  stroke-width: .8;
+}
+.furniture-sofa    { fill: #92400e; stroke: #d97706; }
+.furniture-chair   { fill: #78350f; stroke: #b45309; }
+.furniture-table   { fill: #44403c; stroke: #78716c; }
+.furniture-desk    { fill: #3f3f46; stroke: #71717a; }
+.furniture-bed     { fill: #1e3a5f; stroke: #3b82f6; }
+.furniture-cabinet { fill: #374151; stroke: #6b7280; }
+.furniture-other   { fill: #374151; stroke: #6b7280; }
+.furniture-label {
+  font: 5.5px/1 system-ui, sans-serif;
+  fill: #9ca3af;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ===== Kalibrierungs-Wizard ===== */
+.calibration-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.wizard-steps {
+  display: flex;
+  gap: 0;
+  margin-bottom: 4px;
+  overflow-x: auto;
+}
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+.wizard-step-dot {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all .2s;
+}
+.wizard-step-dot.done    { background: #14532d; border-color: var(--green); color: var(--green); }
+.wizard-step-dot.active  { background: #1e3a5f; border-color: var(--accent); color: var(--accent); }
+.wizard-step-line {
+  width: 24px; height: 2px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.wizard-step-label {
+  display: none;
+}
+
+.wizard-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.wizard-panel h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.wizard-hint {
+  color: var(--muted);
+  font-size: .875rem;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+/* Raum-Diagram für Kalibrierung */
+.room-diagram {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  height: 180px;
+  margin: 0 auto 16px;
+}
+
+/* Live-Position Anzeige */
+.live-pos {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(255,255,255,.04);
+  border-radius: var(--radius);
+  font-size: .875rem;
+  margin-bottom: 14px;
+}
+.live-pos-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  flex-shrink: 0;
+  animation: pulse-dot 1.2s infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .4; }
+}
+.live-pos-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
+
+/* Markierungsknopf */
+.btn-mark {
+  padding: 10px 22px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: .95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, opacity .15s;
+}
+.btn-mark:hover    { background: #2563eb; }
+.btn-mark:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Ergebnis-Vorschau */
+.result-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 16px 0;
+}
+.result-item {
+  background: rgba(255,255,255,.04);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.result-item-label {
+  font-size: .75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 4px;
+}
+.result-item-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Möbel-Liste */
+.furniture-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.furniture-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: .875rem;
+}
+.furniture-item-info { display: flex; flex-direction: column; gap: 2px; }
+.furniture-item-name { font-weight: 600; }
+.furniture-item-meta { font-size: .78rem; color: var(--muted); }
+.furniture-item-status {
+  font-size: .75rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  color: var(--muted);
+}
+.furniture-item-status.done { background: #14532d; color: var(--green); }
+
+/* Möbel hinzufügen Form */
+.add-furniture-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  margin-bottom: 16px;
+  align-items: end;
+}
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-label { font-size: .8rem; color: var(--muted); }
+.form-input, .form-select {
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: .875rem;
+}
+.form-input:focus, .form-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: .875rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-secondary:hover { background: var(--border); }
+
+.btn-success {
+  padding: 10px 24px;
+  background: #15803d;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: .95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-success:hover    { background: #166534; }
+.btn-success:disabled { opacity: .4; cursor: not-allowed; }
+
+.save-result {
+  padding: 16px;
+  background: #052e16;
+  border: 1px solid #22c55e;
+  border-radius: var(--radius);
+  font-size: .9rem;
+}
+.save-result p { margin-bottom: 6px; }
+.save-result code {
+  display: inline-block;
+  padding: 3px 8px;
+  background: rgba(0,0,0,.3);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: .85rem;
+  color: #86efac;
+}
+
 /* ===== Mobile ===== */
 @media (max-width: 600px) {
   .topbar { gap: 8px; padding: 0 12px; }

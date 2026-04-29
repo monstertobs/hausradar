@@ -40,6 +40,11 @@ def transform_sensor_to_room(sensor_config: dict, target: dict) -> dict:
         sensor_config  – ein Sensorobjekt aus sensors.json
         target         – dict mit Feldern x_mm (int/float) und y_mm (int/float)
 
+    Optionale Felder in sensor_config:
+        flip_x  – bool (default false): spiegelt die X-Achse des Sensors.
+                  Nützlich wenn links/rechts auf der Karte vertauscht ist,
+                  ohne dass der Sensor physisch gedreht werden muss.
+
     Rückgabe:
         {"x_mm": float, "y_mm": float}  – Position im Raum-Koordinatensystem
     """
@@ -49,6 +54,10 @@ def transform_sensor_to_room(sensor_config: dict, target: dict) -> dict:
 
     xs = float(target["x_mm"])
     ys = float(target["y_mm"])
+
+    # Optional: X-Achse spiegeln (links/rechts-Korrektur)
+    if sensor_config.get("flip_x", False):
+        xs = -xs
 
     # Uhrzeigersinn-Rotation: Sensorachsen im Raumrahmen
     # sensor +x_s  →  (cos θ, –sin θ)  im Raum

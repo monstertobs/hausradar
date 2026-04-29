@@ -177,9 +177,33 @@ class Floorplan {
     g.appendChild(rect);
     this._roomRects[room.id] = rect;
 
-    // Zonen
     const scX = fp.width  / room.width_mm;
     const scY = fp.height / room.height_mm;
+
+    // Möbel (unterhalb Zonen, damit Zonen-Labels sichtbar bleiben)
+    for (const furn of (room.furniture || [])) {
+      const fx = fp.x + furn.x_mm * scX;
+      const fy = fp.y + furn.y_mm * scY;
+      const fw = furn.width_mm  * scX;
+      const fh = furn.height_mm * scY;
+      g.appendChild(this._el("rect", {
+        x: fx, y: fy, width: fw, height: fh,
+        class: `furniture-rect furniture-${furn.type || "other"}`,
+        rx: 2,
+      }));
+      if (fw > 20 && fh > 10) {
+        const ft = this._el("text", {
+          x: fx + fw / 2, y: fy + fh / 2,
+          class: "furniture-label",
+          "text-anchor": "middle",
+          "dominant-baseline": "middle",
+        });
+        ft.textContent = furn.name;
+        g.appendChild(ft);
+      }
+    }
+
+    // Zonen
     for (const zone of (room.zones || [])) {
       const zx = fp.x + zone.x_mm * scX;
       const zy = fp.y + zone.y_mm * scY;
