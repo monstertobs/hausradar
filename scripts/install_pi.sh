@@ -123,19 +123,10 @@ fi
 
 cat > "$MOSQUITTO_CONF" << 'EOF'
 # HausRadar – Mosquitto-Konfiguration
-# Lauscht auf allen Interfaces (LAN + localhost) – kein Passwort erforderlich
-# im privaten Heimnetz.
+# Öffnet Port 1883 für das lokale Netzwerk.
+# (persistence, log_dest etc. sind bereits in /etc/mosquitto/mosquitto.conf)
 listener 1883
 allow_anonymous true
-
-# Datenpersistenz
-persistence true
-persistence_location /var/lib/mosquitto/
-
-# Logging
-log_dest file /var/log/mosquitto/mosquitto.log
-log_type error
-log_type warning
 EOF
 
 ok "Mosquitto-Konfiguration geschrieben: $MOSQUITTO_CONF"
