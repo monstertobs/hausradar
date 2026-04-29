@@ -16,6 +16,9 @@
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// Farben für bis zu 3 gleichzeitig erkannte Personen
+const PERSON_COLORS = ["#3b82f6", "#f97316", "#22c55e"];
+
 class Floorplan {
   constructor(containerId) {
     this._container   = document.getElementById(containerId);
@@ -66,10 +69,14 @@ class Floorplan {
           if (!t.inside_room) continue;
           targets.push(t);
 
-          // Spur aktualisieren
-          const key = `${sensorId}.${t.id}`;
+          // Spur nur für echte Messungen (keine Ghost-Frames)
+          if (t.ghost) continue;
+          const key = `${sensorId}.track_${t.track_id ?? t.id}`;
           if (!this._trails[key]) this._trails[key] = [];
-          this._trails[key].push({ x: t.floorplan_x, y: t.floorplan_y, ts: now });
+          this._trails[key].push({
+            x: t.floorplan_x, y: t.floorplan_y, ts: now,
+            color_idx: t.color_idx ?? 0,
+          });
           if (this._trails[key].length > this.trailMaxPoints) {
             this._trails[key].shift();
           }
@@ -343,20 +350,26 @@ class Floorplan {
     for (const points of Object.values(this._trails)) {
       if (points.length < 2) continue;
 
+      const color = PERSON_COLORS[points[points.length - 1].color_idx ?? 0];
+      const mid   = Math.floor(points.length / 2);
+
       // Ältere Hälfte (blasser)
-      const mid = Math.floor(points.length / 2);
       if (mid >= 2) {
-        this._trailLayer.appendChild(this._el("polyline", {
+        const el = this._el("polyline", {
           points: points.slice(0, mid + 1).map(p => `${p.x},${p.y}`).join(" "),
           class:  "trail-line trail-line--old",
-        }));
+        });
+        el.style.stroke = color;
+        this._trailLayer.appendChild(el);
       }
 
       // Neuere Hälfte (heller)
-      this._trailLayer.appendChild(this._el("polyline", {
+      const el = this._el("polyline", {
         points: points.slice(mid).map(p => `${p.x},${p.y}`).join(" "),
         class:  "trail-line trail-line--new",
-      }));
+      });
+      el.style.stroke = color;
+      this._trailLayer.appendChild(el);
     }
   }
 
@@ -367,21 +380,26 @@ class Floorplan {
     }
 
     for (const t of targets) {
-      const x = t.floorplan_x;
-      const y = t.floorplan_y;
+      const x     = t.floorplan_x;
+      const y     = t.floorplan_y;
+      const color = PERSON_COLORS[t.color_idx ?? 0];
+      const alpha = t.ghost ? 0.3 : 1.0;
 
       // Äußerer Pulsring
-      this._targetLayer.appendChild(this._el("circle", {
-        cx: x, cy: y, r: 8,
-        class: "target-ring",
-      }));
+      const ring = this._el("circle", { cx: x, cy: y, r: 8, class: "target-ring" });
+      ring.style.stroke  = color;
+      ring.style.opacity = alpha;
+      this._targetLayer.appendChild(ring);
 
       // Innerer Punkt mit Glow
-      this._targetLayer.appendChild(this._el("circle", {
+      const dot = this._el("circle", {
         cx: x, cy: y, r: 4.5,
-        class: "target-dot",
+        class:  "target-dot",
         filter: "url(#fp-glow)",
-      }));
+      });
+      dot.style.fill    = color;
+      dot.style.opacity = alpha;
+      this._targetLayer.appendChild(dot);
     }
   }
 

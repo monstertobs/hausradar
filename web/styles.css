@@ -281,20 +281,19 @@ main {
 /* Bewegungsspuren */
 .trail-line {
   fill: none;
-  stroke: #4ade80;
+  /* stroke wird per inline-style gesetzt (Personen-Farbe) */
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.trail-line--old { stroke-width: 1;   opacity: .12; }
-.trail-line--new { stroke-width: 1.5; opacity: .45; }
+.trail-line--old { stroke-width: 1;   opacity: .15; }
+.trail-line--new { stroke-width: 1.5; opacity: .50; }
 
-/* Zielpunkte */
-.target-dot  { fill: #4ade80; }
+/* Zielpunkte – fill/stroke werden per inline-style gesetzt */
+.target-dot  { }
 .target-ring {
   fill: none;
-  stroke: #4ade80;
   stroke-width: 1;
-  opacity: .35;
+  opacity: .40;
 }
 
 /* Legende */

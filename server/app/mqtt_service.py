@@ -17,6 +17,7 @@ import paho.mqtt.client as mqtt
 from app.coordinate_transform import full_transform
 from app import database as db
 from app import live_state
+from app import tracker as person_tracker
 from app.websocket_service import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -155,21 +156,28 @@ class MqttService:
                     "angle_deg":   t.get("angle_deg"),
                 })
 
+            # ── Personen-Tracking: stabile IDs, Ghost-Frames, Farben ──────────
+            tracked = person_tracker.get_tracker(sensor_id).update(enriched)
+            # Nur echte (nicht Ghost) Targets für DB und target_count
+            real_targets   = [t for t in tracked if not t.get("ghost", False)]
+            # Alle Tracks (inkl. Ghosts) für WebSocket-Anzeige
+            all_targets    = tracked
+
             live_state.update(sensor_id, {
                 "sensor_id":    sensor_id,
                 "room_id":      room_id,
                 "timestamp_ms": timestamp_ms,
-                "target_count": len(enriched),
-                "targets":      enriched,
+                "target_count": len(real_targets),
+                "targets":      all_targets,
             })
 
-            # DB schreiben (sync, rate-limited)
+            # DB schreiben (sync, rate-limited) – keine Ghost-Targets
             max_writes = app.state.settings.get("database", {}).get(
                 "max_writes_per_second_per_sensor", 2
             )
             try:
                 db.record_motion(app.state.db_path, sensor_id, room_id,
-                                 timestamp_ms, enriched, max_writes)
+                                 timestamp_ms, real_targets, max_writes)
             except Exception as exc:
                 logger.warning("MQTT DB-Schreiben fehlgeschlagen: %s", exc)
 
