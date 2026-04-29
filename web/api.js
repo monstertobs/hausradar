@@ -25,6 +25,22 @@ async function apiFetch(path, options = {}) {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Version-Badge  – wird beim Laden jeder Seite in die .logo-Überschrift eingefügt
+// ---------------------------------------------------------------------------
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const h = await apiFetch("/api/health");
+    if (!h || !h.version) return;
+    const logo = document.querySelector(".logo");
+    if (!logo) return;
+    const badge = document.createElement("span");
+    badge.className = "version-badge";
+    badge.textContent = "v" + h.version;
+    logo.appendChild(badge);
+  } catch (_) {}
+});
+
 const API = {
   health:  () => apiFetch("/api/health"),
   rooms:   () => apiFetch("/api/rooms"),
