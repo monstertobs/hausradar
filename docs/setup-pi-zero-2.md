@@ -2,7 +2,7 @@
 
 ## Voraussetzungen
 
-- Raspberry Pi Zero 2 W mit Raspberry Pi OS Lite (Bullseye oder Bookworm, 64-Bit)
+- Raspberry Pi Zero 2 W mit Raspberry Pi OS Lite (Bullseye, Bookworm oder **Trixie**, 64-Bit)
 - MicroSD-Karte ≥ 8 GB
 - WLAN-Verbindung konfiguriert (z.B. via `raspi-config` oder `imager`)
 - SSH-Zugang aktiv
@@ -27,17 +27,11 @@ ssh pi@hausradar.local
 
 ---
 
-## 2. Repository auf den Pi kopieren
+## 2. Repository auf den Pi klonen
 
-**Option A – per scp vom Entwicklungs-Mac:**
-```bash
-scp -r /Users/tobs/Claude/Hausradar/hausradar pi@hausradar.local:~/hausradar
-```
-
-**Option B – git clone (falls git installiert):**
 ```bash
 sudo apt-get install -y git
-git clone <repo-url> ~/hausradar
+git clone https://github.com/monstertobs/hausradar.git ~/hausradar
 ```
 
 ---
@@ -50,7 +44,7 @@ bash scripts/install_pi.sh
 ```
 
 Das Skript erledigt automatisch:
-- System-Pakete installieren (`python3-venv`, `mosquitto`, `sqlite3`)
+- System-Pakete installieren (`python3-venv`, `mosquitto`, `sqlite3`, `git`)
 - Python-Virtualenv erstellen und Abhängigkeiten installieren
 - Mosquitto für das LAN konfigurieren
 - systemd-Service `hausradar` einrichten und starten
