@@ -21,6 +21,63 @@
   <main>
 
     <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- Räume & Sensoren verwalten                                -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <section class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <h2 style="margin:0">RÄUME &amp; SENSOREN</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-secondary" id="btn-layout" style="font-size:.8rem"
+            title="Berechnet SVG-Positionen aller Räume aus Türverbindungen neu">
+            🗺 Grundriss neu berechnen
+          </button>
+          <button class="btn-secondary" id="btn-reload-rooms" style="font-size:.8rem">↺</button>
+        </div>
+      </div>
+
+      <!-- Raumliste -->
+      <div id="rooms-mgmt-body">
+        <p class="muted">Lade …</p>
+      </div>
+
+      <!-- Neuen Raum anlegen -->
+      <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+        <h3 style="margin:0 0 12px;font-size:.9rem;text-transform:uppercase;
+                   letter-spacing:.05em;color:var(--muted)">Neuen Raum anlegen</h3>
+        <div class="add-furniture-form"
+             style="grid-template-columns:2fr 1fr 1fr 2fr auto;align-items:end">
+          <div class="form-group">
+            <label class="form-label">Raumname</label>
+            <input id="new-room-name" class="form-input" type="text"
+                   placeholder="z.B. Schlafzimmer">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Breite (mm)</label>
+            <input id="new-room-width" class="form-input" type="number"
+                   value="5000" min="500" max="30000" step="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tiefe (mm)</label>
+            <input id="new-room-height" class="form-input" type="number"
+                   value="4000" min="500" max="30000" step="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sensor-Name <span class="muted">(leer = kein Sensor)</span></label>
+            <input id="new-room-sensor" class="form-input" type="text"
+                   placeholder="z.B. Radar Schlafzimmer">
+          </div>
+          <div class="form-group">
+            <label class="form-label">&nbsp;</label>
+            <button id="btn-create-room" class="btn-mark"
+                    style="white-space:nowrap">+ Anlegen</button>
+          </div>
+        </div>
+        <div id="create-room-result" style="margin-top:10px"></div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
     <!-- Gespeicherte Kalibrierungen                               -->
     <!-- ══════════════════════════════════════════════════════════ -->
     <section class="card">

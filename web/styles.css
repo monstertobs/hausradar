@@ -767,6 +767,25 @@ main {
   color: #86efac;
 }
 
+/* ===== Inline-Edit-Icon ===== */
+.btn-edit-icon {
+  padding: 2px 6px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: .78rem;
+  cursor: pointer;
+  line-height: 1;
+  transition: background .12s, border-color .12s, color .12s;
+  flex-shrink: 0;
+}
+.btn-edit-icon:hover {
+  background: var(--border);
+  border-color: var(--border);
+  color: var(--text);
+}
+
 /* ===== Mobile ===== */
 @media (max-width: 600px) {
   .topbar { gap: 8px; padding: 0 12px; }
@@ -779,4 +798,9 @@ main {
   .profile-filters { gap: 10px; }
   .sessions-table th:nth-child(3),
   .sessions-table td:nth-child(3) { display: none; }
+  /* Neuer-Raum-Formular: auf mobil einspaltiger Stack */
+  #form-create-room-grid,
+  .add-furniture-form[style*="grid-template-columns:2fr"] {
+    grid-template-columns: 1fr !important;
+  }
 }

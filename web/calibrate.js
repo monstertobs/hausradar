@@ -954,24 +954,56 @@ function renderOverview(rooms) {
     if (btnClearFurn) {
       btnClearFurn.addEventListener("click", () => confirmClearFurniture(room.id, room.name));
     }
-    // Einzelne Möbel löschen
+    // Einzelne Möbel löschen + bearbeiten
     for (const f of (room.furniture || [])) {
       const btnDel = $(`btn-del-furn-${room.id}-${f.id}`);
       if (btnDel) {
         btnDel.addEventListener("click", () => confirmDeleteFurniture(room.id, f.id, f.name));
       }
+      const btnEdit = $(`btn-edit-furn-${room.id}-${f.id}`);
+      if (btnEdit) {
+        btnEdit.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          editFurnitureItem(btnEdit, room.id, f, STATE.furnitureTypes);
+        });
+      }
     }
-    // Einzelne Türen löschen
+    // Einzelne Türen löschen + bearbeiten
     for (const d of (room.doors || [])) {
       const btnDel = $(`btn-del-door-${room.id}-${d.id}`);
       if (btnDel) {
         btnDel.addEventListener("click", () => confirmDeleteDoor(room.id, d.id, d.name));
+      }
+      const btnEdit = $(`btn-edit-door-${room.id}-${d.id}`);
+      if (btnEdit) {
+        btnEdit.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          editDoorItem(btnEdit, room.id, d, rooms);
+        });
       }
     }
     // Neue Kalibrierung für diesen Raum starten
     const btnCal = $(`btn-calibrate-room-${room.id}`);
     if (btnCal) {
       btnCal.addEventListener("click", () => prefillWizard(room));
+    }
+    // Raummaße bearbeiten
+    const btnEditDims = $(`btn-edit-room-dims-${room.id}`);
+    if (btnEditDims) {
+      btnEditDims.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        editRoomDimensions(btnEditDims, room.id, room);
+      });
+    }
+    // Sensorwerte bearbeiten
+    for (const s of (room.sensors || [])) {
+      const btnEditSensor = $(`btn-edit-sensor-${room.id}-${s.id}`);
+      if (btnEditSensor) {
+        btnEditSensor.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          editSensorValues(btnEditSensor, s.id, s);
+        });
+      }
     }
   }
 }
@@ -983,13 +1015,17 @@ function overviewRoomHtml(room) {
   const sensorHtml = sensors.length === 0
     ? `<span class="muted" style="font-size:.8rem">Kein Sensor</span>`
     : sensors.map(s => `
-        <div style="font-size:.82rem;color:var(--muted)">
-          <strong style="color:var(--text)">${esc(s.name)}</strong>
-          · x=${(s.x_mm/1000).toFixed(2)} m
-          · y=${(s.y_mm/1000).toFixed(2)} m
-          · rot=${s.rotation_deg.toFixed(1)}°
-          ${s.flip_x ? '· <span style="color:var(--yellow)">flip_x</span>' : ""}
-          ${!s.enabled ? '· <span style="color:var(--red)">deaktiviert</span>' : ""}
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="font-size:.82rem;color:var(--muted)">
+            <strong style="color:var(--text)">${esc(s.name)}</strong>
+            · x=${(s.x_mm/1000).toFixed(2)} m
+            · y=${(s.y_mm/1000).toFixed(2)} m
+            · rot=${s.rotation_deg.toFixed(1)}°
+            ${s.flip_x ? '· <span style="color:var(--yellow)">flip_x</span>' : ""}
+            ${!s.enabled ? '· <span style="color:var(--red)">deaktiviert</span>' : ""}
+          </div>
+          <button class="btn-edit-icon" title="Sensorwerte bearbeiten"
+            id="btn-edit-sensor-${esc(room.id)}-${esc(s.id)}">✏️</button>
         </div>`).join("");
 
   const furnitureHtml = !hasFurniture
@@ -1006,11 +1042,15 @@ function overviewRoomHtml(room) {
                 · Position (${(f.x_mm/1000).toFixed(2)} m, ${(f.y_mm/1000).toFixed(2)} m)
               </div>
             </div>
-            <button class="btn-secondary"
-              style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
-              id="btn-del-furn-${esc(room.id)}-${esc(f.id)}">
-              🗑 Löschen
-            </button>
+            <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+              <button class="btn-edit-icon" title="Bearbeiten"
+                id="btn-edit-furn-${esc(room.id)}-${esc(f.id)}">✏️</button>
+              <button class="btn-secondary"
+                style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
+                id="btn-del-furn-${esc(room.id)}-${esc(f.id)}">
+                🗑
+              </button>
+            </div>
           </div>`).join("")}
       </div>
       <div style="margin-top:8px">
@@ -1028,12 +1068,14 @@ function overviewRoomHtml(room) {
 
       <!-- Kopfzeile -->
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
-        <div>
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
           <div style="font-weight:700;font-size:1rem">${esc(room.name)}</div>
-          <div style="font-size:.82rem;color:var(--muted);margin-top:2px">
+          <div style="font-size:.82rem;color:var(--muted)">
             ${(room.width_mm/1000).toFixed(2)} m × ${(room.height_mm/1000).toFixed(2)} m
             · Fläche ~${((room.width_mm/1000)*(room.height_mm/1000)).toFixed(1)} m²
           </div>
+          <button class="btn-edit-icon" title="Raummaße bearbeiten"
+            id="btn-edit-room-dims-${esc(room.id)}">✏️</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn-secondary" style="font-size:.78rem"
@@ -1096,11 +1138,15 @@ function overviewDoorsHtml(room) {
               · ${d.width_mm} mm breit
             </div>
           </div>
-          <button class="btn-secondary"
-            style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
-            id="btn-del-door-${esc(room.id)}-${esc(d.id)}">
-            🗑 Löschen
-          </button>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+            <button class="btn-edit-icon" title="Bearbeiten"
+              id="btn-edit-door-${esc(room.id)}-${esc(d.id)}">✏️</button>
+            <button class="btn-secondary"
+              style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
+              id="btn-del-door-${esc(room.id)}-${esc(d.id)}">
+              🗑
+            </button>
+          </div>
         </div>`).join("")}
     </div>`;
 }
@@ -1154,6 +1200,186 @@ async function confirmResetRoom(roomId, roomName) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Inline-Bearbeitung gespeicherter Werte
+// ---------------------------------------------------------------------------
+
+/**
+ * Zeigt ein schwebendes Edit-Modal direkt unter dem auslösenden Button.
+ * fields = [{key, label, type, value, options?}]
+ * onSave(updates) wird mit den geänderten Werten aufgerufen.
+ */
+function showEditModal(anchorEl, title, fields, onSave) {
+  // Alte Modals entfernen
+  document.querySelectorAll(".inline-edit-modal").forEach(m => m.remove());
+
+  const modal = document.createElement("div");
+  modal.className = "inline-edit-modal";
+  modal.style.cssText = `
+    position:fixed;z-index:9000;
+    background:var(--surface,#151923);
+    border:1px solid var(--border,#2d3448);
+    border-radius:8px;padding:14px 16px;
+    min-width:260px;max-width:360px;
+    box-shadow:0 8px 32px rgba(0,0,0,.6);
+    font-size:.875rem;`;
+
+  let html = `<div style="font-weight:700;margin-bottom:10px;font-size:.9rem">${esc(title)}</div>`;
+  for (const f of fields) {
+    html += `<div style="margin-bottom:8px">
+      <label style="display:block;font-size:.75rem;color:var(--muted,#888);margin-bottom:3px">${esc(f.label)}</label>`;
+    if (f.type === "select" && f.options) {
+      html += `<select class="form-input" data-key="${esc(f.key)}" style="width:100%">`;
+      for (const [val, lbl] of Object.entries(f.options)) {
+        html += `<option value="${esc(val)}" ${String(val) === String(f.value) ? "selected" : ""}>${esc(lbl)}</option>`;
+      }
+      html += `</select>`;
+    } else if (f.type === "checkbox") {
+      html += `<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" data-key="${esc(f.key)}" ${f.value ? "checked" : ""}>
+        <span style="font-size:.8rem;color:var(--text)">aktiviert</span>
+      </label>`;
+    } else {
+      html += `<input class="form-input" type="${f.type || "text"}"
+        data-key="${esc(f.key)}" value="${esc(String(f.value ?? ""))}"
+        style="width:100%;box-sizing:border-box">`;
+    }
+    html += `</div>`;
+  }
+  html += `<div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn-mark" id="edit-modal-save" style="flex:1;font-size:.8rem;padding:6px 0">Speichern</button>
+    <button class="btn-secondary" id="edit-modal-cancel" style="font-size:.8rem;padding:6px 12px">Abbrechen</button>
+  </div>`;
+  modal.innerHTML = html;
+
+  document.body.appendChild(modal);
+
+  // Position relativ zum Anker
+  const rect = anchorEl.getBoundingClientRect();
+  const mw = 360;
+  let left = rect.left;
+  if (left + mw > window.innerWidth - 12) left = window.innerWidth - mw - 12;
+  let top = rect.bottom + 6;
+  modal.style.left = left + "px";
+  modal.style.top  = top + "px";
+
+  // Schließen
+  const close = () => modal.remove();
+
+  modal.querySelector("#edit-modal-cancel").addEventListener("click", close);
+
+  modal.querySelector("#edit-modal-save").addEventListener("click", async () => {
+    const updates = {};
+    for (const f of fields) {
+      const el = modal.querySelector(`[data-key="${f.key}"]`);
+      if (!el) continue;
+      if (f.type === "checkbox") {
+        updates[f.key] = el.checked;
+      } else if (f.type === "number") {
+        const v = parseFloat(el.value);
+        if (!isNaN(v)) updates[f.key] = v;
+      } else {
+        if (el.value.trim() !== "") updates[f.key] = el.value.trim();
+      }
+    }
+    try {
+      await onSave(updates);
+      close();
+    } catch (e) {
+      // Fehler bereits in onSave behandelt, Modal bleibt offen
+    }
+  });
+
+  // Klick außerhalb schließt
+  setTimeout(() => {
+    document.addEventListener("click", function outsideClick(ev) {
+      if (!modal.contains(ev.target) && ev.target !== anchorEl) {
+        close();
+        document.removeEventListener("click", outsideClick);
+      }
+    });
+  }, 10);
+}
+
+async function editRoomDimensions(anchorEl, roomId, room) {
+  showEditModal(anchorEl, `Raummaße: ${room.name}`, [
+    { key: "width_mm",  label: "Breite (mm)",  type: "number", value: room.width_mm  },
+    { key: "height_mm", label: "Tiefe (mm)",   type: "number", value: room.height_mm },
+  ], async (updates) => {
+    await apiFetch(`/api/calibrate/room/${roomId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    showRestartHint();
+    loadOverview();
+  });
+}
+
+async function editSensorValues(anchorEl, sensorId, sensor) {
+  showEditModal(anchorEl, `Sensor: ${sensor.name}`, [
+    { key: "x_mm",         label: "Position x (mm)",    type: "number", value: sensor.x_mm         },
+    { key: "y_mm",         label: "Position y (mm)",    type: "number", value: sensor.y_mm         },
+    { key: "rotation_deg", label: "Rotation (°)",        type: "number", value: sensor.rotation_deg },
+    { key: "flip_x",       label: "Spiegelung (flip_x)", type: "checkbox", value: !!sensor.flip_x  },
+  ], async (updates) => {
+    await apiFetch(`/api/calibrate/sensor/${sensorId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    showRestartHint();
+    loadOverview();
+  });
+}
+
+async function editFurnitureItem(anchorEl, roomId, furn, furnitureTypes) {
+  const typeOptions = Object.fromEntries(
+    Object.entries(furnitureTypes || {}).map(([k, v]) => [k, v.de || k])
+  );
+  if (!Object.keys(typeOptions).length) {
+    typeOptions.sofa = "Sofa/Couch"; typeOptions.chair = "Stuhl/Sessel";
+    typeOptions.table = "Tisch"; typeOptions.desk = "Schreibtisch";
+    typeOptions.bed = "Bett"; typeOptions.cabinet = "Schrank"; typeOptions.other = "Sonstiges";
+  }
+  showEditModal(anchorEl, `Möbel: ${furn.name}`, [
+    { key: "name",      label: "Name",          type: "text",   value: furn.name      },
+    { key: "type",      label: "Typ",           type: "select", value: furn.type || "other", options: typeOptions },
+    { key: "x_mm",      label: "Position x (mm)", type: "number", value: furn.x_mm   },
+    { key: "y_mm",      label: "Position y (mm)", type: "number", value: furn.y_mm   },
+    { key: "width_mm",  label: "Breite (mm)",   type: "number", value: furn.width_mm  },
+    { key: "height_mm", label: "Tiefe (mm)",    type: "number", value: furn.height_mm },
+  ], async (updates) => {
+    await apiFetch(`/api/calibrate/room/${roomId}/furniture/${furn.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    showRestartHint();
+    loadOverview();
+  });
+}
+
+async function editDoorItem(anchorEl, roomId, door, allRooms) {
+  const roomOptions = Object.fromEntries((allRooms || []).map(r => [r.id, r.name]));
+  const wallOptions = { top: "Oben (Sensorwand)", bottom: "Unten", left: "Links", right: "Rechts" };
+  showEditModal(anchorEl, `Tür: ${door.name}`, [
+    { key: "name",        label: "Name",               type: "text",   value: door.name        },
+    { key: "connects_to", label: "Führt zu (Raum-ID)", type: "text",   value: door.connects_to || "" },
+    { key: "wall",        label: "Wand",               type: "select", value: door.wall,  options: wallOptions },
+    { key: "position_mm", label: "Abstand Ecke (mm)",  type: "number", value: door.position_mm },
+    { key: "width_mm",    label: "Breite (mm)",         type: "number", value: door.width_mm    },
+  ], async (updates) => {
+    await apiFetch(`/api/calibrate/room/${roomId}/door/${door.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    showRestartHint();
+    loadOverview();
+  });
+}
+
 function showRestartHint() {
   // Kurze Einblendung oben auf der Seite
   let hint = document.getElementById("restart-hint-banner");
@@ -1191,16 +1417,276 @@ function prefillWizard(room) {
 }
 
 // ---------------------------------------------------------------------------
+// Räume & Sensoren verwalten
+// ---------------------------------------------------------------------------
+
+async function loadRoomsMgmt() {
+  const body = $("rooms-mgmt-body");
+  body.innerHTML = `<p class="muted">Lade …</p>`;
+  try {
+    const [rooms, sensors] = await Promise.all([
+      apiFetch("/api/rooms"),
+      apiFetch("/api/sensors"),
+    ]);
+    renderRoomsMgmt(rooms, sensors);
+  } catch (e) {
+    body.innerHTML = `<p style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
+  }
+}
+
+function renderRoomsMgmt(rooms, sensors) {
+  const body = $("rooms-mgmt-body");
+  if (!rooms.length) {
+    body.innerHTML = `<p class="muted">Keine Räume konfiguriert.</p>`;
+    return;
+  }
+
+  // Sensoren nach Raum gruppieren
+  const sensorsByRoom = {};
+  for (const s of sensors) {
+    if (!sensorsByRoom[s.room_id]) sensorsByRoom[s.room_id] = [];
+    sensorsByRoom[s.room_id].push(s);
+  }
+
+  body.innerHTML = `
+    <div style="display:grid;gap:8px">
+      ${rooms.map(r => roomMgmtRowHtml(r, sensorsByRoom[r.id] || [])).join("")}
+    </div>`;
+
+  // Events binden
+  for (const room of rooms) {
+    // Raum umbenennen
+    const btnRename = $(`btn-rename-room-${room.id}`);
+    if (btnRename) {
+      btnRename.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        showEditModal(btnRename, `Raum umbenennen: ${room.name}`, [
+          { key: "name", label: "Neuer Name", type: "text", value: room.name },
+        ], async (updates) => {
+          await apiFetch(`/api/rooms/${room.id}`, {
+            method:  "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify(updates),
+          });
+          showRestartHint();
+          loadRoomsMgmt();
+          loadOverview();
+        });
+      });
+    }
+    // Raum löschen
+    const btnDel = $(`btn-delete-room-${room.id}`);
+    if (btnDel) {
+      btnDel.addEventListener("click", () => confirmDeleteRoom(room.id, room.name));
+    }
+    // Sensor hinzufügen
+    const btnAddSensor = $(`btn-add-sensor-${room.id}`);
+    if (btnAddSensor) {
+      btnAddSensor.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        showEditModal(btnAddSensor, `Sensor hinzufügen: ${room.name}`, [
+          { key: "name",            label: "Sensor-Name",        type: "text",   value: `Radar ${room.name}` },
+          { key: "mount_height_mm", label: "Montagehöhe (mm)",   type: "number", value: 2200 },
+        ], async (updates) => {
+          await apiFetch("/api/sensors", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ room_id: room.id, ...updates }),
+          });
+          showRestartHint();
+          loadRoomsMgmt();
+          loadSelectors();
+        });
+      });
+    }
+    // Sensor umbenennen / deaktivieren
+    for (const s of (sensorsByRoom[room.id] || [])) {
+      const btnEditSensor = $(`btn-mgmt-edit-sensor-${s.id}`);
+      if (btnEditSensor) {
+        btnEditSensor.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          showEditModal(btnEditSensor, `Sensor bearbeiten: ${s.name}`, [
+            { key: "name",            label: "Name",              type: "text",     value: s.name },
+            { key: "enabled",         label: "Aktiv",             type: "checkbox", value: s.enabled !== false },
+            { key: "mount_height_mm", label: "Montagehöhe (mm)",  type: "number",   value: s.mount_height_mm || 2200 },
+          ], async (updates) => {
+            await apiFetch(`/api/sensors/${s.id}`, {
+              method:  "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body:    JSON.stringify(updates),
+            });
+            showRestartHint();
+            loadRoomsMgmt();
+            loadSelectors();
+          });
+        });
+      }
+      const btnDelSensor = $(`btn-mgmt-del-sensor-${s.id}`);
+      if (btnDelSensor) {
+        btnDelSensor.addEventListener("click", () => confirmDeleteSensor(s.id, s.name));
+      }
+    }
+  }
+}
+
+function roomMgmtRowHtml(room, sensors) {
+  const sensorBadges = sensors.length === 0
+    ? `<span class="muted" style="font-size:.78rem">kein Sensor</span>`
+    : sensors.map(s => `
+        <span style="display:inline-flex;align-items:center;gap:4px;
+              font-size:.78rem;background:var(--border);border-radius:4px;
+              padding:2px 6px;color:${s.enabled === false ? 'var(--red)' : 'var(--text)'}">
+          📡 ${esc(s.name)}
+          <button class="btn-edit-icon" id="btn-mgmt-edit-sensor-${esc(s.id)}"
+            title="Bearbeiten" style="font-size:.7rem">✏️</button>
+          <button class="btn-edit-icon" id="btn-mgmt-del-sensor-${esc(s.id)}"
+            title="Löschen" style="font-size:.7rem;color:var(--red)">✕</button>
+        </span>`).join(" ");
+
+  return `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+                padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+      <!-- Raumname -->
+      <div style="font-weight:600;min-width:130px">${esc(room.name)}</div>
+      <!-- Abmessungen -->
+      <div style="font-size:.78rem;color:var(--muted);white-space:nowrap">
+        ${(room.width_mm/1000).toFixed(1)} m × ${(room.height_mm/1000).toFixed(1)} m
+      </div>
+      <!-- Sensoren -->
+      <div style="display:flex;flex-wrap:wrap;gap:4px;flex:1">${sensorBadges}</div>
+      <!-- Aktionen -->
+      <div style="display:flex;gap:6px;flex-shrink:0;margin-left:auto">
+        <button class="btn-secondary" style="font-size:.75rem;padding:4px 10px"
+          id="btn-add-sensor-${esc(room.id)}" title="Sensor hinzufügen">+ Sensor</button>
+        <button class="btn-edit-icon" style="padding:4px 8px"
+          id="btn-rename-room-${esc(room.id)}" title="Umbenennen">✏️</button>
+        <button class="btn-edit-icon"
+          style="padding:4px 8px;color:var(--red)"
+          id="btn-delete-room-${esc(room.id)}" title="Raum löschen">🗑</button>
+      </div>
+    </div>`;
+}
+
+async function confirmDeleteRoom(roomId, roomName) {
+  if (!confirm(
+    `Raum "${roomName}" wirklich löschen?\n\n` +
+    `• Alle zugehörigen Sensoren werden ebenfalls gelöscht\n` +
+    `• Türverweise anderer Räume auf diesen Raum werden geleert\n\n` +
+    `Der Dienst muss danach neu gestartet werden.`
+  )) return;
+  try {
+    await apiFetch(`/api/rooms/${roomId}`, { method: "DELETE" });
+    showRestartHint();
+    loadRoomsMgmt();
+    loadOverview();
+    loadSelectors();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+async function confirmDeleteSensor(sensorId, sensorName) {
+  if (!confirm(`Sensor "${sensorName}" wirklich löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;
+  try {
+    await apiFetch(`/api/sensors/${sensorId}`, { method: "DELETE" });
+    showRestartHint();
+    loadRoomsMgmt();
+    loadSelectors();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+// Grundriss-Auto-Layout
+async function recomputeLayout() {
+  const btn = $("btn-layout");
+  if (btn) { btn.disabled = true; btn.textContent = "🗺 Berechne …"; }
+  try {
+    const res = await apiFetch("/api/calibrate/layout", { method: "POST" });
+    showRestartHint();
+    // Hinweis mit Ergebnis
+    const resultEl = document.createElement("div");
+    resultEl.style.cssText = `
+      position:fixed;top:60px;left:50%;transform:translateX(-50%);
+      background:#0c1a2e;border:1px solid #3b82f6;border-radius:8px;
+      padding:10px 20px;font-size:.875rem;z-index:9999;
+      box-shadow:0 4px 20px rgba(0,0,0,.5)`;
+    resultEl.innerHTML = `🗺 Grundriss neu berechnet – ${res.placed} Räume platziert<br>
+      <small style="color:var(--muted)">Neustart erforderlich um die Änderungen zu sehen</small>`;
+    document.body.appendChild(resultEl);
+    setTimeout(() => resultEl.remove(), 6000);
+  } catch (e) {
+    alert("Fehler beim Layout: " + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🗺 Grundriss neu berechnen"; }
+  }
+}
+
+// Neuen Raum anlegen (Formular)
+async function handleCreateRoom() {
+  const name   = $("new-room-name").value.trim();
+  const width  = parseInt($("new-room-width").value)  || 5000;
+  const height = parseInt($("new-room-height").value) || 4000;
+  const sensor = $("new-room-sensor").value.trim();
+
+  if (!name) {
+    $("create-room-result").innerHTML = `<span style="color:var(--red)">Bitte Raumname eingeben.</span>`;
+    return;
+  }
+
+  const btn = $("btn-create-room");
+  btn.disabled = true;
+  $("create-room-result").innerHTML = "";
+
+  try {
+    const res = await apiFetch("/api/rooms", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        name,
+        width_mm:    width,
+        height_mm:   height,
+        sensor_name: sensor || null,
+      }),
+    });
+    $("create-room-result").innerHTML = `
+      <span style="color:var(--green)">
+        ✓ Raum <strong>${esc(res.room.name)}</strong> angelegt
+        (ID: <code>${esc(res.room.id)}</code>)
+        ${res.sensor ? ` · Sensor <strong>${esc(res.sensor.name)}</strong>` : ""}
+      </span>`;
+    // Felder leeren
+    $("new-room-name").value   = "";
+    $("new-room-sensor").value = "";
+    showRestartHint();
+    loadRoomsMgmt();
+    loadSelectors();
+    loadOverview();
+  } catch (e) {
+    $("create-room-result").innerHTML = `<span style="color:var(--red)">Fehler: ${esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", () => {
   loadSelectors();
+  loadRoomsMgmt();
   loadOverview();
   initStatusBadge();
 
   $("btn-reload-overview")?.addEventListener("click", loadOverview);
+  $("btn-reload-rooms")?.addEventListener("click",   loadRoomsMgmt);
+  $("btn-layout")?.addEventListener("click",         recomputeLayout);
+  $("btn-create-room")?.addEventListener("click",    handleCreateRoom);
 
   // Übersicht nach erfolgreichem Speichern automatisch aktualisieren
-  document.addEventListener("calibration-saved", loadOverview);
+  document.addEventListener("calibration-saved", () => {
+    loadOverview();
+    loadRoomsMgmt();
+  });
 });

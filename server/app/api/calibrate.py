@@ -3,8 +3,13 @@ Kalibrierungs-API für HausRadar.
 
 Endpunkte:
   GET    /api/calibrate/overview                               → Alle gespeicherten Kalibrierungen
+  PATCH  /api/calibrate/room/{room_id}                         → Raummaße anpassen
+  PATCH  /api/calibrate/sensor/{sensor_id}                     → Sensorposition anpassen
+  PATCH  /api/calibrate/room/{room_id}/furniture/{fid}         → Möbelstück anpassen
+  PATCH  /api/calibrate/room/{room_id}/door/{did}              → Tür anpassen
   DELETE /api/calibrate/room/{room_id}/furniture/{fid}         → Einzelnes Möbelstück löschen
   DELETE /api/calibrate/room/{room_id}/furniture               → Alle Möbel eines Raums löschen
+  DELETE /api/calibrate/room/{room_id}/door/{did}              → Tür löschen
   DELETE /api/calibrate/room/{room_id}/reset                   → Raum-Kalibrierung zurücksetzen
 
   POST   /api/calibrate/session                                → Session anlegen
@@ -54,6 +59,35 @@ class FurnitureRequest(BaseModel):
 class DoorRequest(BaseModel):
     name:        str
     connects_to: str   # room_id des Zielraums
+
+
+class PatchRoomRequest(BaseModel):
+    width_mm:  Optional[int]   = None
+    height_mm: Optional[int]   = None
+
+
+class PatchSensorRequest(BaseModel):
+    x_mm:         Optional[float] = None
+    y_mm:         Optional[float] = None
+    rotation_deg: Optional[float] = None
+    flip_x:       Optional[bool]  = None
+
+
+class PatchFurnitureRequest(BaseModel):
+    name:      Optional[str]   = None
+    type:      Optional[str]   = None
+    x_mm:      Optional[int]   = None
+    y_mm:      Optional[int]   = None
+    width_mm:  Optional[int]   = None
+    height_mm: Optional[int]   = None
+
+
+class PatchDoorRequest(BaseModel):
+    name:         Optional[str] = None
+    connects_to:  Optional[str] = None
+    wall:         Optional[str] = None
+    position_mm:  Optional[int] = None
+    width_mm:     Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -653,6 +687,271 @@ def reset_room_calibration(room_id: str):
         "room_id":          room_id,
         "furniture_deleted": furn_count,
         "sensors_reset":    reset_sensors,
+        "restart_required": True,
+        "restart_hint":     "sudo systemctl restart hausradar",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Einzelne Messwerte bearbeiten (PATCH)
+# ---------------------------------------------------------------------------
+
+@router.patch("/room/{room_id}", status_code=200)
+def patch_room(room_id: str, body: PatchRoomRequest):
+    """Ändert Raummaße (width_mm, height_mm) direkt in rooms.json."""
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    updated = {}
+    if body.width_mm is not None:
+        room["width_mm"] = body.width_mm
+        updated["width_mm"] = body.width_mm
+    if body.height_mm is not None:
+        room["height_mm"] = body.height_mm
+        updated["height_mm"] = body.height_mm
+
+    if not updated:
+        raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Raum '%s' gepatcht: %s", room_id, updated)
+    return {"room_id": room_id, "updated": updated, "restart_required": True,
+            "restart_hint": "sudo systemctl restart hausradar"}
+
+
+@router.patch("/sensor/{sensor_id}", status_code=200)
+def patch_sensor(sensor_id: str, body: PatchSensorRequest):
+    """Ändert Sensorposition/-rotation direkt in sensors.json."""
+    sensors_path = CONFIG_DIR / "sensors.json"
+    sensors = _load_json_file(sensors_path)
+    sensor = next((s for s in sensors if s["id"] == sensor_id), None)
+    if sensor is None:
+        raise HTTPException(status_code=404, detail=f"Sensor '{sensor_id}' nicht gefunden")
+
+    updated = {}
+    if body.x_mm is not None:
+        sensor["x_mm"] = round(body.x_mm, 1)
+        updated["x_mm"] = sensor["x_mm"]
+    if body.y_mm is not None:
+        sensor["y_mm"] = round(body.y_mm, 1)
+        updated["y_mm"] = sensor["y_mm"]
+    if body.rotation_deg is not None:
+        sensor["rotation_deg"] = round(body.rotation_deg, 1)
+        updated["rotation_deg"] = sensor["rotation_deg"]
+    if body.flip_x is not None:
+        if body.flip_x:
+            sensor["flip_x"] = True
+        else:
+            sensor.pop("flip_x", None)
+        updated["flip_x"] = body.flip_x
+
+    if not updated:
+        raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
+
+    _write_json_file(sensors_path, sensors)
+    logger.info("Sensor '%s' gepatcht: %s", sensor_id, updated)
+    return {"sensor_id": sensor_id, "updated": updated, "restart_required": True,
+            "restart_hint": "sudo systemctl restart hausradar"}
+
+
+@router.patch("/room/{room_id}/furniture/{fid}", status_code=200)
+def patch_furniture(room_id: str, fid: str, body: PatchFurnitureRequest):
+    """Ändert ein Möbelstück direkt in rooms.json."""
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    furn = next((f for f in room.get("furniture", []) if f.get("id") == fid), None)
+    # Auch in zones suchen (is_zone-Möbel landen dort)
+    zone = next((z for z in room.get("zones", []) if z.get("id") == fid), None)
+
+    if furn is None and zone is None:
+        raise HTTPException(status_code=404, detail=f"Möbelstück '{fid}' nicht gefunden")
+
+    updated = {}
+    for target in [x for x in (furn, zone) if x is not None]:
+        if body.name is not None:
+            target["name"] = body.name;  updated["name"] = body.name
+        if body.type is not None and target is furn:
+            target["type"] = body.type;  updated["type"] = body.type
+        if body.x_mm is not None:
+            target["x_mm"] = body.x_mm;  updated["x_mm"] = body.x_mm
+        if body.y_mm is not None:
+            target["y_mm"] = body.y_mm;  updated["y_mm"] = body.y_mm
+        if body.width_mm is not None:
+            target["width_mm"] = body.width_mm;  updated["width_mm"] = body.width_mm
+        if body.height_mm is not None:
+            target["height_mm"] = body.height_mm; updated["height_mm"] = body.height_mm
+
+    if not updated:
+        raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Möbelstück '%s' in Raum '%s' gepatcht: %s", fid, room_id, updated)
+    return {"room_id": room_id, "furniture_id": fid, "updated": updated,
+            "restart_required": True, "restart_hint": "sudo systemctl restart hausradar"}
+
+
+@router.patch("/room/{room_id}/door/{did}", status_code=200)
+def patch_door(room_id: str, did: str, body: PatchDoorRequest):
+    """Ändert eine Tür direkt in rooms.json."""
+    valid_walls = {"top", "bottom", "left", "right"}
+    if body.wall is not None and body.wall not in valid_walls:
+        raise HTTPException(status_code=422,
+                            detail=f"Ungültige Wand '{body.wall}' – erlaubt: {valid_walls}")
+
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    door = next((d for d in room.get("doors", []) if d.get("id") == did), None)
+    if door is None:
+        raise HTTPException(status_code=404, detail=f"Tür '{did}' nicht gefunden")
+
+    updated = {}
+    if body.name is not None:
+        door["name"] = body.name;               updated["name"] = body.name
+    if body.connects_to is not None:
+        door["connects_to"] = body.connects_to; updated["connects_to"] = body.connects_to
+    if body.wall is not None:
+        door["wall"] = body.wall;               updated["wall"] = body.wall
+    if body.position_mm is not None:
+        door["position_mm"] = body.position_mm; updated["position_mm"] = body.position_mm
+    if body.width_mm is not None:
+        door["width_mm"] = body.width_mm;       updated["width_mm"] = body.width_mm
+
+    if not updated:
+        raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Tür '%s' in Raum '%s' gepatcht: %s", did, room_id, updated)
+    return {"room_id": room_id, "door_id": did, "updated": updated,
+            "restart_required": True, "restart_hint": "sudo systemctl restart hausradar"}
+
+
+# ---------------------------------------------------------------------------
+# Grundriss-Auto-Layout  (POST /api/calibrate/layout)
+# ---------------------------------------------------------------------------
+
+@router.post("/layout", status_code=200)
+def compute_and_save_layout():
+    """
+    Berechnet SVG-Floorplan-Koordinaten für alle Räume neu:
+    BFS-Traversal des Türgraphen → angrenzende Räume werden an der passenden
+    Wand platziert, sodass die Türöffnung ungefähr fluchtet.
+
+    Räume ohne Türverbindung landen in einer Reihe unterhalb des Hauptgraphen.
+
+    Schreibt die neuen floorplan-Koordinaten in rooms.json.
+    """
+    SCALE = 0.05   # px / mm (1 m → 50 px – konsistent mit bisherigen Daten)
+    GAP   = 12     # px Lücke zwischen benachbarten Räumen
+    PAD   = 10     # px Außenabstand
+
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+
+    if not rooms:
+        return {"placed": 0, "message": "Keine Räume vorhanden"}
+
+    room_map = {r["id"]: r for r in rooms}
+
+    def fp_size(room):
+        w = max(round(room.get("width_mm",  5000) * SCALE), 20)
+        h = max(round(room.get("height_mm", 4000) * SCALE), 20)
+        return w, h
+
+    placed  = {}          # room_id → (fp_x, fp_y)
+    visited = set()
+
+    # BFS-Start: erster Raum
+    first_id = rooms[0]["id"]
+    placed[first_id]  = (PAD, PAD)
+    visited.add(first_id)
+    queue = [first_id]
+
+    while queue:
+        rid  = queue.pop(0)
+        room = room_map[rid]
+        rx, ry = placed[rid]
+        rw, rh = fp_size(room)
+
+        for door in room.get("doors", []):
+            nid = (door.get("connects_to") or "").strip()
+            if not nid or nid not in room_map or nid in visited:
+                continue
+
+            neighbor    = room_map[nid]
+            nw, nh      = fp_size(neighbor)
+            wall        = door.get("wall", "right")
+            door_pos    = door.get("position_mm", 0) * SCALE
+            door_w      = door.get("width_mm", 800)  * SCALE
+            door_center = door_pos + door_w / 2
+
+            # Nachbar so platzieren, dass Türmitte im Nachbar der Türmitte im
+            # aktuellen Raum entspricht (grobe Ausrichtung)
+            if wall == "right":
+                nx = rx + rw + GAP
+                ny = ry + door_center - nh / 2
+            elif wall == "left":
+                nx = rx - GAP - nw
+                ny = ry + door_center - nh / 2
+            elif wall == "bottom":
+                ny = ry + rh + GAP
+                nx = rx + door_center - nw / 2
+            elif wall == "top":
+                ny = ry - GAP - nh
+                nx = rx + door_center - nw / 2
+            else:
+                nx = rx + rw + GAP
+                ny = ry
+
+            placed[nid] = (round(nx), round(ny))
+            visited.add(nid)
+            queue.append(nid)
+
+    # Räume ohne Verbindung: Reihe unterhalb des Hauptgraphen
+    if placed:
+        max_y = max(y + fp_size(room_map[r])[1] for r, (x, y) in placed.items())
+    else:
+        max_y = PAD
+    cur_x = PAD
+    for room in rooms:
+        if room["id"] not in placed:
+            nw, nh = fp_size(room)
+            placed[room["id"]] = (cur_x, round(max_y + GAP * 3))
+            cur_x += nw + GAP
+
+    # Normalisieren: alles so verschieben, dass min_x = PAD, min_y = PAD
+    min_x = min(x for x, y in placed.values())
+    min_y = min(y for x, y in placed.values())
+    sx, sy = PAD - min_x, PAD - min_y
+    placed = {rid: (x + sx, y + sy) for rid, (x, y) in placed.items()}
+
+    # In rooms.json schreiben
+    for room in rooms:
+        rid = room["id"]
+        if rid not in placed:
+            continue
+        fx, fy = placed[rid]
+        fw, fh = fp_size(room)
+        room["floorplan"] = {"x": fx, "y": fy, "width": fw, "height": fh}
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Grundriss-Auto-Layout: %d Räume platziert", len(placed))
+
+    return {
+        "placed":           len(placed),
+        "layout":           {rid: {"x": x, "y": y, "w": fp_size(room_map[rid])[0],
+                                   "h": fp_size(room_map[rid])[1]}
+                             for rid, (x, y) in placed.items()},
         "restart_required": True,
         "restart_hint":     "sudo systemctl restart hausradar",
     }
