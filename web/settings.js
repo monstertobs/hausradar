@@ -73,9 +73,11 @@ function _fmt_uptime(s) {
 
 async function _loadConfig() {
   try {
-    const [rooms, sensors] = await Promise.all([API.rooms(), API.sensors()]);
+    const [rooms, sensors, liveData] = await Promise.all([
+      API.rooms(), API.sensors(), API.live().catch(() => null),
+    ]);
     _renderRooms(rooms);
-    _renderSensors(sensors, rooms);
+    _renderSensors(sensors, rooms, liveData);
   } catch {
     document.getElementById("settings-rooms").innerHTML =
       '<p class="muted error-text">Fehler beim Laden der Konfiguration.</p>';
@@ -103,27 +105,145 @@ function _renderRooms(rooms) {
   }).join("");
 }
 
-function _renderSensors(sensors, rooms) {
-  const el = document.getElementById("settings-sensors");
+function _renderSensors(sensors, rooms, liveData) {
+  const el      = document.getElementById("settings-sensors");
   const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.name]));
   if (!sensors.length) { el.innerHTML = '<p class="muted">Keine Sensoren konfiguriert.</p>'; return; }
 
   el.innerHTML = sensors.map(s => {
-    const roomName = roomMap[s.room_id] || s.room_id;
-    const statusClass = s.enabled ? "dot dot--ok" : "dot dot--off";
-    const statusLabel = s.enabled ? "aktiv" : "deaktiviert";
+    const roomName   = roomMap[s.room_id] || s.room_id;
+    const live       = liveData?.sensors?.[s.id];
+    const isOnline   = live?.online === true;
+    const isDisabled = s.enabled === false;
+    const liveClass  = isDisabled  ? "dot dot--off"
+                     : isOnline    ? "dot dot--ok"
+                     :              "dot dot--warn";
+    const liveLabel  = isDisabled  ? "deaktiviert"
+                     : isOnline    ? "online – sendet"
+                     :              "offline";
+    const lastSeen   = live?.last_seen_seconds_ago != null
+      ? `<br>Zuletzt: vor ${Math.round(live.last_seen_seconds_ago)} s`
+      : "";
+    const targets    = isOnline && live.target_count > 0
+      ? `<br><span style="color:var(--green)">${live.target_count} Person(en) erkannt</span>`
+      : "";
+    const mqttTopic  = `hausradar/sensor/${esc(s.id)}/state`;
+
     return `
-      <div class="sensor-tile">
-        <strong><span class="${statusClass}"></span> ${esc(s.name)}</strong>
+      <div class="sensor-tile" id="sensor-tile-${esc(s.id)}">
+        <div class="sensor-tile__header">
+          <span><span class="${liveClass}"></span> <strong>${esc(s.name)}</strong></span>
+          <button class="btn-identify" onclick="identifySensor('${esc(s.id)}','${esc(s.name)}')"
+                  title="Sensor identifizieren">📡 Identifizieren</button>
+        </div>
         <div class="sensor-tile__meta">
-          Raum: ${esc(roomName)}<br>
-          Position: ${esc(s.x_mm)} mm / ${esc(s.y_mm)} mm<br>
-          Höhe: ${esc(s.mount_height_mm)} mm<br>
+          Raum: <strong>${esc(roomName)}</strong><br>
+          Status: ${liveLabel}${lastSeen}${targets}<br>
+          Position: ${esc(s.x_mm)} / ${esc(s.y_mm)} mm · Höhe: ${esc(s.mount_height_mm)} mm<br>
           Drehung: ${esc(s.rotation_deg)}°<br>
-          Status: ${statusLabel}
+          <span class="mqtt-topic" title="Diese ID in der ESP32-Firmware eintragen (config.h → SENSOR_ID)">
+            MQTT: <code>${mqttTopic}</code>
+          </span>
         </div>
       </div>`;
   }).join("");
+}
+
+// ---------------------------------------------------------------------------
+// Sensor-Identifikation via WebSocket
+// ---------------------------------------------------------------------------
+
+function identifySensor(sensorId, sensorName) {
+  // Overlay aufbauen
+  const overlay = document.createElement("div");
+  overlay.className = "identify-overlay";
+  overlay.innerHTML = `
+    <div class="identify-box">
+      <div class="identify-box__title">📡 Sensor identifizieren</div>
+      <p>Bewege dich jetzt vor <strong>${esc(sensorName)}</strong>.<br>
+         Der Sensor wird bestätigt sobald Bewegung erkannt wird.</p>
+      <div class="identify-status" id="id-status">
+        <span class="dot dot--warn"></span> Warte auf Signal …
+      </div>
+      <div id="id-detail" class="identify-detail"></div>
+      <button class="btn-secondary" id="id-cancel">Abbrechen</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  let ws      = null;
+  let timer   = null;
+  let done    = false;
+
+  function close() {
+    if (ws) { try { ws.close(); } catch(_) {} }
+    clearTimeout(timer);
+    overlay.remove();
+  }
+
+  document.getElementById("id-cancel").addEventListener("click", close);
+  overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+
+  // WebSocket öffnen
+  try {
+    ws = new WebSocket(`ws://${location.host}/ws/live`);
+  } catch(e) {
+    document.getElementById("id-status").innerHTML =
+      `<span style="color:var(--red)">❌ WebSocket nicht verfügbar</span>`;
+    return;
+  }
+
+  // Timeout nach 20 Sekunden
+  timer = setTimeout(() => {
+    if (done) return;
+    document.getElementById("id-status").innerHTML =
+      `<span style="color:var(--yellow)">⏱️ Kein Signal in 20 s – ist der Sensor online?</span>`;
+    ws.close();
+  }, 20_000);
+
+  ws.onmessage = e => {
+    if (done) return;
+    let data;
+    try { data = JSON.parse(e.data); } catch(_) { return; }
+    const s = data?.sensors?.[sensorId];
+    if (!s?.online) return;
+
+    // Online aber noch keine Bewegung → zeige "online"
+    const statusEl = document.getElementById("id-status");
+    if (statusEl) {
+      statusEl.innerHTML = `<span class="dot dot--ok"></span> Sensor online …`;
+    }
+
+    if (s.target_count > 0) {
+      done = true;
+      clearTimeout(timer);
+      ws.close();
+      if (statusEl) {
+        statusEl.innerHTML =
+          `<span style="color:var(--green);font-size:1.3rem">✅ Bewegung erkannt!</span>`;
+      }
+      const det = document.getElementById("id-detail");
+      if (det) {
+        det.innerHTML = `
+          <span class="dot dot--ok"></span> Raum: <strong>${esc(s.room_id)}</strong><br>
+          ${s.target_count} Person(en) in Sensorreichweite<br>
+          Zuletzt gesehen: vor ${Math.round(s.last_seen_seconds_ago ?? 0)} s`;
+      }
+      document.getElementById("id-cancel").textContent = "Schließen";
+
+      // Zugehörige Kachel kurz aufleuchten lassen
+      const tile = document.getElementById(`sensor-tile-${sensorId}`);
+      if (tile) {
+        tile.classList.add("sensor-tile--flash");
+        setTimeout(() => tile.classList.remove("sensor-tile--flash"), 2000);
+      }
+    }
+  };
+
+  ws.onerror = () => {
+    const statusEl = document.getElementById("id-status");
+    if (statusEl) statusEl.innerHTML =
+      `<span style="color:var(--red)">❌ Verbindungsfehler</span>`;
+  };
 }
 
 // ---------------------------------------------------------------------------

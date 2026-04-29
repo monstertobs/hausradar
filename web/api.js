@@ -43,6 +43,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 const API = {
   health:  () => apiFetch("/api/health"),
+  live:    () => apiFetch("/api/live"),
   rooms:   () => apiFetch("/api/rooms"),
   sensors: () => apiFetch("/api/sensors"),
 

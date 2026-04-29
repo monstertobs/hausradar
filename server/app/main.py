@@ -179,6 +179,15 @@ app.include_router(calibrate.router, prefix="/api")
 app.include_router(update.router,   prefix="/api")
 
 
+@app.get("/api/live")
+def live(request: Request):
+    """Aktueller Live-Zustand aller Sensoren (Snapshot, kein Stream)."""
+    timeout = request.app.state.settings.get("live", {}).get(
+        "sensor_offline_timeout_seconds", 10
+    )
+    return live_state.build_response(timeout)
+
+
 @app.get("/api/health")
 def health():
     return {
