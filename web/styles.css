@@ -500,6 +500,22 @@ main {
 
 .error-text { color: var(--red); }
 
+/* ===== Türen im Grundriss ===== */
+.door-gap    { fill: #0a0d14; }   /* Hintergrundfarbe – überdeckt Wandlinie */
+.door-symbol {
+  fill: none;
+  stroke: #6366f1;
+  stroke-width: 1;
+  stroke-dasharray: 2 1;
+  opacity: .85;
+}
+.door-label {
+  font: 5px/1 system-ui, sans-serif;
+  fill: #818cf8;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ===== Möbel im Grundriss ===== */
 .furniture-rect {
   fill-opacity: .25;

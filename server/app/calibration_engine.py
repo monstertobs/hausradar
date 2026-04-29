@@ -78,6 +78,7 @@ def create_session(sensor_id: str, room_id: str) -> str:
         "corners":    {},
         "computed":   None,
         "furniture":  [],
+        "doors":      [],
         "created_at": time.time(),
     }
     return session_id
@@ -210,6 +211,112 @@ def mark_furniture_corner(session_id: str, fid: str, corner: str,
     if corner not in ("a", "b"):
         raise ValueError("corner muss 'a' oder 'b' sein")
     item["corners"][corner] = {"x_mm": round(float(x_mm), 1), "y_mm": round(float(y_mm), 1)}
+
+
+# ---------------------------------------------------------------------------
+# Türen markieren + Position berechnen
+# ---------------------------------------------------------------------------
+
+def add_door(session_id: str, name: str, connects_to: str) -> str:
+    session = _sessions[session_id]
+    did = str(uuid.uuid4())[:8]
+    session.setdefault("doors", []).append({
+        "id":          did,
+        "name":        name,
+        "connects_to": connects_to,
+        "points":      {},   # "a" und "b" – je ein Sensor-Koordinaten-Paar
+        "computed":    None,
+    })
+    return did
+
+
+def get_door(session_id: str, did: str) -> Optional[dict]:
+    session = _sessions.get(session_id)
+    if not session:
+        return None
+    return next((d for d in session.get("doors", []) if d["id"] == did), None)
+
+
+def mark_door_point(session_id: str, did: str, point: str,
+                    x_mm: float, y_mm: float) -> None:
+    door = get_door(session_id, did)
+    if not door:
+        raise ValueError(f"Tür '{did}' nicht gefunden")
+    if point not in ("a", "b"):
+        raise ValueError("point muss 'a' oder 'b' sein")
+    door["points"][point] = {"x_mm": round(float(x_mm), 1), "y_mm": round(float(y_mm), 1)}
+
+
+def compute_door(session_id: str, did: str) -> dict:
+    """
+    Berechnet Wandzugehörigkeit, Position und Breite einer Tür aus zwei
+    markierten Punkten an den Türkanten.
+
+    Rückgabe:
+        {
+          "wall":        "top" | "bottom" | "left" | "right",
+          "position_mm": float,   # Abstand vom Wandanfang zur Türkante
+          "width_mm":    float,   # Türbreite
+        }
+
+    Wandkonvention (Raumkoordinaten):
+        top    → y = 0          (Sensor-Wand)
+        bottom → y = height_mm
+        left   → x = 0
+        right  → x = width_mm
+        position_mm für top/bottom: Abstand von x=0
+        position_mm für left/right: Abstand von y=0
+    """
+    session = _sessions[session_id]
+    door = get_door(session_id, did)
+    if not door:
+        raise ValueError(f"Tür '{did}' nicht gefunden")
+    if "a" not in door["points"] or "b" not in door["points"]:
+        raise ValueError("Beide Punkte (a und b) müssen markiert sein")
+
+    comp = session.get("computed") or {}
+    rotation_deg = comp.get("rotation_deg", 0)
+    sx = comp.get("sensor_x_mm", 0)
+    sy = comp.get("sensor_y_mm", 0)
+    width_mm  = comp.get("width_mm",  0)
+    height_mm = comp.get("height_mm", 0)
+
+    cos_t = math.cos(math.radians(rotation_deg))
+    sin_t = math.sin(math.radians(rotation_deg))
+
+    def to_room(p):
+        rx, ry = _room_rel(p["x_mm"], p["y_mm"], cos_t, sin_t)
+        return sx + rx, sy + ry
+
+    ax, ay = to_room(door["points"]["a"])
+    bx, by = to_room(door["points"]["b"])
+    cx, cy = (ax + bx) / 2, (ay + by) / 2  # Mittelpunkt der Tür
+
+    # Nächste Wand anhand Mittelpunkt bestimmen
+    dist_top    = cy
+    dist_bottom = height_mm - cy
+    dist_left   = cx
+    dist_right  = width_mm  - cx
+
+    nearest = min(
+        ("top",    dist_top),
+        ("bottom", dist_bottom),
+        ("left",   dist_left),
+        ("right",  dist_right),
+        key=lambda t: t[1],
+    )
+    wall = nearest[0]
+
+    if wall in ("top", "bottom"):
+        pos = round(min(ax, bx))
+        w   = round(abs(bx - ax))
+    else:  # left, right
+        pos = round(min(ay, by))
+        w   = round(abs(by - ay))
+
+    result = {"wall": wall, "position_mm": pos, "width_mm": w}
+    door["computed"] = result
+    return result
 
 
 def compute_furniture_pos(session_id: str, fid: str) -> dict:

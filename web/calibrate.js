@@ -27,6 +27,7 @@ const STATE = {
   markedCorners:  {},   // label → {x_mm, y_mm}
   computed:       null,
   furniture:      [],   // {id, name, type, is_zone, corners:{}, computed}
+  doors:          [],   // {id, name, connects_to, points:{}, computed}
   step:           0,    // aktueller Wizard-Schritt (1-7)
 
   // WebSocket Live-Position
@@ -162,7 +163,7 @@ $("btn-start").addEventListener("click", async () => {
 // Schritt-Navigation
 // ---------------------------------------------------------------------------
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 function gotoStep(n) {
   STATE.step = n;
@@ -173,7 +174,7 @@ function gotoStep(n) {
 function renderProgress() {
   const bar = $("wizard-steps-bar");
   const labels = [
-    "↖ H.L.", "↗ H.R.", "↘ V.R.", "↙ V.L.", "Vorschau", "Möbel", "Speichern"
+    "↖ H.L.", "↗ H.R.", "↘ V.R.", "↙ V.L.", "Vorschau", "Möbel", "Türen", "Speichern"
   ];
   bar.innerHTML = "";
   for (let i = 1; i <= TOTAL_STEPS; i++) {
@@ -203,7 +204,8 @@ function renderStep(n) {
   if (n >= 1 && n <= 4) renderCornerStep(n, body);
   else if (n === 5)     renderPreviewStep(body);
   else if (n === 6)     renderFurnitureStep(body);
-  else if (n === 7)     renderSaveStep(body);
+  else if (n === 7)     renderDoorStep(body);
+  else if (n === 8)     renderSaveStep(body);
 }
 
 // ─── Ecken-Schritt (1–4) ────────────────────────────────────────────────────
@@ -318,16 +320,73 @@ async function renderPreviewStep(body) {
           Fläche: ca. ${((res.width_mm / 1000) * (res.height_mm / 1000)).toFixed(1)} m²
         </p>
 
+        <!-- Einzelpunkt-Nachkalibrierung -->
+        <details style="margin:16px 0">
+          <summary style="cursor:pointer;font-size:.875rem;color:var(--muted);
+                          padding:8px 0;user-select:none">
+            ⚙ Einzelne Punkte nachkalibrieren (bei Messfehlern)
+          </summary>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+            ${Object.entries(STATE.markedCorners).map(([lbl, pos]) => {
+              const info = STATE.cornerDisplay[lbl] || {};
+              return `
+                <div style="display:flex;align-items:center;justify-content:space-between;
+                            padding:8px 12px;background:rgba(255,255,255,.04);border-radius:6px;
+                            font-size:.85rem">
+                  <span>
+                    <strong>${esc(info.icon || "")} ${esc(info.de || lbl)}</strong>
+                    <span style="color:var(--muted);margin-left:8px">
+                      x=${pos.x_mm.toFixed(0)} mm, y=${pos.y_mm.toFixed(0)} mm
+                    </span>
+                  </span>
+                  <button class="btn-secondary" style="font-size:.78rem;padding:3px 10px"
+                    id="btn-remark-${esc(lbl)}">Neu markieren</button>
+                </div>`;
+            }).join("")}
+          </div>
+          <div id="remark-result" style="margin-top:8px"></div>
+        </details>
+
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn-secondary" id="btn-prev5">← Zurück (neu messen)</button>
           <button class="btn-mark" id="btn-next5">Weiter → Möbel</button>
-          <button class="btn-secondary" id="btn-skip-furn">Möbel überspringen</button>
+          <button class="btn-secondary" id="btn-skip-furn">Möbel &amp; Türen überspringen</button>
         </div>
       </div>`;
 
-    $("btn-prev5").addEventListener("click", () => gotoStep(4));
+    // Nachkalibrierungs-Buttons binden
+    for (const lbl of Object.keys(STATE.markedCorners)) {
+      const btn = $(`btn-remark-${lbl}`);
+      if (!btn) continue;
+      btn.addEventListener("click", async () => {
+        btn.disabled    = true;
+        btn.textContent = "Markiere …";
+        $("remark-result").innerHTML = "";
+        try {
+          const res = await apiFetch(
+            `/api/calibrate/session/${STATE.sessionId}/remark/${lbl}`,
+            { method: "POST" }
+          );
+          STATE.markedCorners[lbl] = { x_mm: res.x_mm, y_mm: res.y_mm };
+          $("remark-result").innerHTML =
+            `<span style="color:var(--green)">✓ ${esc(lbl)} neu markiert – berechne …</span>`;
+          // Neu berechnen und Vorschau aktualisieren
+          const computed = await apiFetch(
+            `/api/calibrate/session/${STATE.sessionId}/compute`,
+            { method: "POST" }
+          );
+          STATE.computed = computed;
+          renderPreviewStep($("wizard-body"));
+        } catch (e) {
+          $("remark-result").innerHTML =
+            `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+          btn.disabled    = false;
+          btn.textContent = "Neu markieren";
+        }
+      });
+    }
+
     $("btn-next5").addEventListener("click", () => gotoStep(6));
-    $("btn-skip-furn").addEventListener("click", () => gotoStep(7));
+    $("btn-skip-furn").addEventListener("click", () => gotoStep(8));
   } catch (e) {
     body.innerHTML = `
       <div class="wizard-panel">
@@ -392,7 +451,8 @@ function renderFurnitureStep(body) {
 
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn-secondary" id="btn-prev6">← Zurück</button>
-        <button class="btn-mark" id="btn-next6">Weiter → Speichern</button>
+        <button class="btn-mark" id="btn-next6">Weiter → Türen</button>
+        <button class="btn-secondary" id="btn-skip-doors6">Türen überspringen</button>
       </div>
     </div>`;
 
@@ -401,6 +461,7 @@ function renderFurnitureStep(body) {
 
   $("btn-prev6").addEventListener("click", () => gotoStep(5));
   $("btn-next6").addEventListener("click", () => gotoStep(7));
+  $("btn-skip-doors6").addEventListener("click", () => gotoStep(8));
 }
 
 function furnItemHtml(f) {
@@ -501,7 +562,181 @@ function refreshFurnList() {
   bindFurnitureEvents();
 }
 
-// ─── Speichern-Schritt (7) ──────────────────────────────────────────────────
+// ─── Türen-Schritt (7) ──────────────────────────────────────────────────────
+
+function renderDoorStep(body) {
+  // Alle Räume für das Dropdown holen
+  fetch("/api/rooms")
+    .then(r => r.json())
+    .then(rooms => renderDoorStepWithRooms(body, rooms))
+    .catch(() => renderDoorStepWithRooms(body, []));
+}
+
+function renderDoorStepWithRooms(body, allRooms) {
+  const otherRooms = allRooms.filter(r => r.id !== STATE.roomId);
+  const roomOptions = otherRooms
+    .map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`)
+    .join("");
+
+  const doorListHtml = STATE.doors.length === 0
+    ? `<p class="muted" style="font-size:.875rem">Noch keine Türen erfasst.</p>`
+    : STATE.doors.map(d => doorItemHtml(d, allRooms)).join("");
+
+  body.innerHTML = `
+    <div class="wizard-panel">
+      <h3>Schritt 7 – Türen erfassen <span style="color:var(--muted);font-weight:400">(optional)</span></h3>
+      <p class="wizard-hint">
+        Stell dich nacheinander an beide Kanten einer Türöffnung und markiere sie.
+        Der Sensor berechnet automatisch auf welcher Wand die Tür liegt und wie breit sie ist.
+        Gib an wohin die Tür führt – so entsteht die Verbindung zwischen den Räumen.
+      </p>
+
+      <!-- Tür hinzufügen -->
+      <div class="add-furniture-form" style="grid-template-columns:1fr 1fr auto">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input id="door-name" class="form-input" placeholder="z.B. Tür zur Küche" maxlength="40"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Führt zu</label>
+          <select id="door-target" class="form-select">
+            ${roomOptions.length
+              ? roomOptions
+              : `<option value="">– kein anderer Raum –</option>`}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">&nbsp;</label>
+          <button class="btn-secondary" id="btn-add-door">+ Hinzufügen</button>
+        </div>
+      </div>
+
+      <!-- Liste -->
+      <div class="furniture-list" id="door-list">${doorListHtml}</div>
+
+      <!-- Live-Position -->
+      <div class="live-pos">
+        <div class="live-pos-dot"></div>
+        <span class="live-pos-text">–</span>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-secondary" id="btn-prev7">← Zurück</button>
+        <button class="btn-mark" id="btn-next7">Weiter → Speichern</button>
+      </div>
+    </div>`;
+
+  renderLiveIndicator();
+  bindDoorEvents(allRooms);
+  $("btn-prev7").addEventListener("click", () => gotoStep(6));
+  $("btn-next7").addEventListener("click", () => gotoStep(8));
+}
+
+function doorItemHtml(d, allRooms) {
+  const aOk = !!d.points?.a;
+  const bOk = !!d.points?.b;
+  const done = !!d.computed;
+  const targetName = allRooms.find(r => r.id === d.connects_to)?.name || d.connects_to;
+
+  let statusText = "Warte …";
+  if (done) {
+    const wallNames = { top: "oben", bottom: "unten", left: "links", right: "rechts" };
+    statusText = `Wand ${wallNames[d.computed.wall] || d.computed.wall}, ` +
+                 `${d.computed.width_mm} mm breit`;
+  } else if (bOk) {
+    statusText = "Berechne …";
+  } else if (aOk) {
+    statusText = "Kante A ✓";
+  }
+
+  return `
+    <div class="furniture-item" id="di-${esc(d.id)}">
+      <div class="furniture-item-info">
+        <div class="furniture-item-name">${esc(d.name)}</div>
+        <div class="furniture-item-meta">→ ${esc(targetName)}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px"
+          id="btn-mark-da-${esc(d.id)}" ${done ? "disabled" : ""}>
+          ${aOk ? "✓" : "📍"} Kante A
+        </button>
+        <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px"
+          id="btn-mark-db-${esc(d.id)}" ${done || !aOk ? "disabled" : ""}>
+          ${bOk ? "✓" : "📍"} Kante B
+        </button>
+        <span class="furniture-item-status ${done ? "done" : ""}">${esc(statusText)}</span>
+      </div>
+    </div>`;
+}
+
+function bindDoorEvents(allRooms) {
+  $("btn-add-door")?.addEventListener("click", async () => {
+    const name       = $("door-name").value.trim();
+    const connects_to = $("door-target")?.value || "";
+    if (!name) { $("door-name").focus(); return; }
+
+    try {
+      const res = await apiFetch(
+        `/api/calibrate/session/${STATE.sessionId}/door`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body:   JSON.stringify({ name, connects_to }),
+        }
+      );
+      STATE.doors.push({ id: res.door_id, name, connects_to, points: {}, computed: null });
+      $("door-name").value = "";
+      refreshDoorList(allRooms);
+    } catch (e) {
+      alert("Fehler: " + e.message);
+    }
+  });
+
+  for (const d of STATE.doors) {
+    bindDoorPointBtn(d, "a", allRooms);
+    bindDoorPointBtn(d, "b", allRooms);
+  }
+}
+
+function bindDoorPointBtn(d, point, allRooms) {
+  const btn = $(`btn-mark-d${point}-${d.id}`);
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled    = true;
+    btn.textContent = "…";
+    try {
+      const res = await apiFetch(
+        `/api/calibrate/session/${STATE.sessionId}/door/${d.id}/mark/${point}`,
+        { method: "POST" }
+      );
+      d.points[point] = { x_mm: res.x_mm, y_mm: res.y_mm };
+
+      if (res.ready) {
+        const comp = await apiFetch(
+          `/api/calibrate/session/${STATE.sessionId}/door/${d.id}/compute`,
+          { method: "POST" }
+        );
+        d.computed = comp;
+      }
+      refreshDoorList(allRooms);
+    } catch (e) {
+      alert("Fehler: " + e.message);
+      btn.disabled    = false;
+      btn.textContent = `📍 Kante ${point.toUpperCase()}`;
+    }
+  });
+}
+
+function refreshDoorList(allRooms) {
+  const list = $("door-list");
+  if (!list) return;
+  list.innerHTML = STATE.doors.length === 0
+    ? `<p class="muted" style="font-size:.875rem">Noch keine Türen erfasst.</p>`
+    : STATE.doors.map(d => doorItemHtml(d, allRooms)).join("");
+  bindDoorEvents(allRooms);
+}
+
+// ─── Speichern-Schritt (8) ──────────────────────────────────────────────────
 
 function renderSaveStep(body) {
   const readyFurn = STATE.furniture.filter(f => f.computed).length;
@@ -530,8 +765,8 @@ function renderSaveStep(body) {
           <div class="result-item-value">${STATE.computed ? (STATE.computed.sensor_x_mm / 1000).toFixed(2) + " m" : "–"}</div>
         </div>
         <div class="result-item">
-          <div class="result-item-label">Möbelstücke</div>
-          <div class="result-item-value">${readyFurn} / ${totalFurn}</div>
+          <div class="result-item-label">Möbel / Türen</div>
+          <div class="result-item-value">${readyFurn} / ${STATE.doors.filter(d=>d.computed).length}</div>
         </div>
       </div>
 
@@ -541,13 +776,13 @@ function renderSaveStep(body) {
            </p>` : ""}
 
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-        <button class="btn-secondary" id="btn-prev7">← Zurück</button>
+        <button class="btn-secondary" id="btn-prev8">← Zurück</button>
         <button class="btn-success" id="btn-save">💾 Jetzt speichern</button>
       </div>
       <div id="save-result"></div>
     </div>`;
 
-  $("btn-prev7").addEventListener("click", () => gotoStep(6));
+  $("btn-prev8").addEventListener("click", () => gotoStep(7));
   $("btn-save").addEventListener("click", async () => {
     $("btn-save").disabled    = true;
     $("btn-save").textContent = "Speichere …";
@@ -569,6 +804,8 @@ function renderSaveStep(body) {
              rotation=${res.sensor.rotation_deg.toFixed(1)}°</p>
           ${res.furniture_saved > 0
             ? `<p>${res.furniture_saved} Möbelstück(e) gespeichert.</p>` : ""}
+          ${res.doors_saved > 0
+            ? `<p>${res.doors_saved} Tür(en) gespeichert.</p>` : ""}
           <p style="margin-top:12px">
             ⚠ <strong>Backend neu starten</strong> damit die Änderungen wirken:<br>
             <code>${esc(res.restart_hint)}</code>
@@ -724,6 +961,13 @@ function renderOverview(rooms) {
         btnDel.addEventListener("click", () => confirmDeleteFurniture(room.id, f.id, f.name));
       }
     }
+    // Einzelne Türen löschen
+    for (const d of (room.doors || [])) {
+      const btnDel = $(`btn-del-door-${room.id}-${d.id}`);
+      if (btnDel) {
+        btnDel.addEventListener("click", () => confirmDeleteDoor(room.id, d.id, d.name));
+      }
+    }
     // Neue Kalibrierung für diesen Raum starten
     const btnCal = $(`btn-calibrate-room-${room.id}`);
     if (btnCal) {
@@ -819,10 +1063,58 @@ function overviewRoomHtml(room) {
         </div>
         ${furnitureHtml}
       </div>
+
+      <!-- Türen -->
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;
+                    letter-spacing:.05em;margin-bottom:4px">
+          Türen (${(room.doors||[]).length})
+        </div>
+        ${overviewDoorsHtml(room)}
+      </div>
     </div>`;
 }
 
 // ─── Bestätigungs-Dialoge + API-Calls ──────────────────────────────────────
+
+function overviewDoorsHtml(room) {
+  const doors = room.doors || [];
+  if (!doors.length) {
+    return `<p class="muted" style="font-size:.8rem;margin:4px 0 0">Keine Türen erfasst.</p>`;
+  }
+  const wallNames = { top: "oben", bottom: "unten", left: "links", right: "rechts" };
+  return `
+    <div class="furniture-list" style="margin-top:8px">
+      ${doors.map(d => `
+        <div class="furniture-item">
+          <div class="furniture-item-info">
+            <div class="furniture-item-name">${esc(d.name)}</div>
+            <div class="furniture-item-meta">
+              → ${esc(d.connects_to || "–")}
+              · Wand ${esc(wallNames[d.wall] || d.wall)}
+              · ${d.position_mm} mm ab Ecke
+              · ${d.width_mm} mm breit
+            </div>
+          </div>
+          <button class="btn-secondary"
+            style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
+            id="btn-del-door-${esc(room.id)}-${esc(d.id)}">
+            🗑 Löschen
+          </button>
+        </div>`).join("")}
+    </div>`;
+}
+
+async function confirmDeleteDoor(roomId, doorId, doorName) {
+  if (!confirm(`Tür "${doorName}" wirklich löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;
+  try {
+    await apiFetch(`/api/calibrate/room/${roomId}/door/${doorId}`, { method: "DELETE" });
+    showRestartHint();
+    loadOverview();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
 
 async function confirmDeleteFurniture(roomId, furnId, furnName) {
   if (!confirm(`Möbelstück "${furnName}" wirklich löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;

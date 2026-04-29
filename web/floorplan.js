@@ -180,6 +180,11 @@ class Floorplan {
     const scX = fp.width  / room.width_mm;
     const scY = fp.height / room.height_mm;
 
+    // Türen als Lücken in den Wänden
+    for (const door of (room.doors || [])) {
+      this._buildDoor(g, fp, scX, scY, door);
+    }
+
     // Möbel (unterhalb Zonen, damit Zonen-Labels sichtbar bleiben)
     for (const furn of (room.furniture || [])) {
       const fx = fp.x + furn.x_mm * scX;
@@ -239,6 +244,64 @@ class Floorplan {
     g.appendChild(label);
 
     svg.appendChild(g);
+  }
+
+  _buildDoor(g, fp, scX, scY, door) {
+    // Tür als Lücke in der Wand + kleines Symbol + Label
+    const GAP = 3;   // px – Breite der "Wand" zum Überdecken
+    const pos = door.position_mm;
+    const w   = door.width_mm;
+
+    let dx, dy, dw, dh, lx, ly;
+    switch (door.wall) {
+      case "top":
+        dx = fp.x + pos * scX;  dy = fp.y - GAP;
+        dw = w * scX;           dh = GAP * 2 + 1;
+        lx = dx + dw / 2;       ly = fp.y + 9;
+        break;
+      case "bottom":
+        dx = fp.x + pos * scX;  dy = fp.y + fp.height - GAP;
+        dw = w * scX;           dh = GAP * 2 + 1;
+        lx = dx + dw / 2;       ly = fp.y + fp.height - 3;
+        break;
+      case "left":
+        dx = fp.x - GAP;        dy = fp.y + pos * scY;
+        dw = GAP * 2 + 1;       dh = w * scY;
+        lx = fp.x + 8;          ly = dy + dh / 2;
+        break;
+      case "right":
+        dx = fp.x + fp.width - GAP; dy = fp.y + pos * scY;
+        dw = GAP * 2 + 1;           dh = w * scY;
+        lx = fp.x + fp.width - 8;   ly = dy + dh / 2;
+        break;
+      default: return;
+    }
+
+    // Lücke (überdeckt die Wand mit Hintergrundfarbe)
+    g.appendChild(this._el("rect", {
+      x: dx, y: dy, width: dw, height: dh,
+      class: "door-gap",
+    }));
+
+    // Türsymbol (dünner Bogen / Linie)
+    g.appendChild(this._el("rect", {
+      x: dx + 0.5, y: dy + 0.5,
+      width: Math.max(dw - 1, 1), height: Math.max(dh - 1, 1),
+      class: "door-symbol",
+    }));
+
+    // Label wenn genug Platz
+    const labelLen = (door.wall === "top" || door.wall === "bottom") ? dw : dh;
+    if (labelLen > 18) {
+      const lt = this._el("text", {
+        x: lx, y: ly,
+        class: "door-label",
+        "text-anchor": "middle",
+        "dominant-baseline": "middle",
+      });
+      lt.textContent = door.connects_to ? `→ ${door.connects_to}` : "Tür";
+      g.appendChild(lt);
+    }
   }
 
   _buildSensor(svg, sensor) {

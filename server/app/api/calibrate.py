@@ -51,6 +51,11 @@ class FurnitureRequest(BaseModel):
     is_zone: bool = True
 
 
+class DoorRequest(BaseModel):
+    name:        str
+    connects_to: str   # room_id des Zielraums
+
+
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
@@ -218,6 +223,87 @@ def compute_furniture(session_id: str, fid: str):
 
 
 # ---------------------------------------------------------------------------
+# Einzelnen Eckpunkt nachkalibrieren
+# ---------------------------------------------------------------------------
+
+@router.post("/session/{session_id}/remark/{label}")
+def remark_corner(session_id: str, label: str):
+    """
+    Überschreibt einen bereits markierten Eckpunkt mit der aktuellen Position.
+    Setzt computed zurück – danach muss /compute erneut aufgerufen werden.
+    """
+    session = _get_session_or_404(session_id)
+    pos = _current_sensor_pos(session["sensor_id"])
+
+    try:
+        engine.mark_corner(session_id, label, pos["x_mm"], pos["y_mm"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Bisherige Berechnung ungültig machen
+    engine.get_session(session_id)["computed"] = None
+
+    return {
+        "label":    label,
+        "x_mm":     pos["x_mm"],
+        "y_mm":     pos["y_mm"],
+        "recompute_required": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Türen
+# ---------------------------------------------------------------------------
+
+@router.post("/session/{session_id}/door", status_code=201)
+def add_door(session_id: str, body: DoorRequest, request: Request):
+    """Legt eine neue Tür in der Session an."""
+    _get_session_or_404(session_id)
+    rooms = request.app.state.rooms
+    if not any(r["id"] == body.connects_to for r in rooms):
+        raise HTTPException(status_code=404,
+                            detail=f"Zielraum '{body.connects_to}' nicht gefunden")
+    did = engine.add_door(session_id, body.name, body.connects_to)
+    return {"door_id": did}
+
+
+@router.post("/session/{session_id}/door/{did}/mark/{point}")
+def mark_door_point(session_id: str, did: str, point: str):
+    """
+    Markiert die aktuelle Position als Türkante.
+    point muss 'a' (eine Seite) oder 'b' (andere Seite) sein.
+    """
+    session = _get_session_or_404(session_id)
+    pos = _current_sensor_pos(session["sensor_id"])
+
+    try:
+        engine.mark_door_point(session_id, did, point, pos["x_mm"], pos["y_mm"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    door = engine.get_door(session_id, did)
+    return {
+        "door_id":    did,
+        "point":      point,
+        "x_mm":       pos["x_mm"],
+        "y_mm":       pos["y_mm"],
+        "points_done": list(door["points"].keys()),
+        "ready":       len(door["points"]) >= 2,
+    }
+
+
+@router.post("/session/{session_id}/door/{did}/compute")
+def compute_door(session_id: str, did: str):
+    """Berechnet Wand, Position und Breite der Tür."""
+    _get_session_or_404(session_id)
+    try:
+        result = engine.compute_door(session_id, did)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Speichern
 # ---------------------------------------------------------------------------
 
@@ -294,6 +380,23 @@ def save_calibration(session_id: str, request: Request):
             zones_list[:] = [z for z in zones_list if z.get("id") != furn["id"]]
             zones_list.append(zone)
 
+    # Türen in doors[] schreiben
+    doors_list = room_obj.setdefault("doors", [])
+    for door in session.get("doors", []):
+        dcomp = door.get("computed")
+        if not dcomp:
+            continue
+        dobj = {
+            "id":           door["id"],
+            "name":         door["name"],
+            "connects_to":  door["connects_to"],
+            "wall":         dcomp["wall"],
+            "position_mm":  dcomp["position_mm"],
+            "width_mm":     dcomp["width_mm"],
+        }
+        doors_list[:] = [d for d in doors_list if d.get("id") != door["id"]]
+        doors_list.append(dobj)
+
     try:
         rooms_path.write_text(
             json.dumps(rooms, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -343,6 +446,7 @@ def save_calibration(session_id: str, request: Request):
             "rotation_deg": computed["rotation_deg"],
         },
         "furniture_saved": len([f for f in session["furniture"] if f.get("computed")]),
+        "doors_saved":      len([d for d in session.get("doors", []) if d.get("computed")]),
         "restart_required": True,
         "restart_hint": "sudo systemctl restart hausradar",
     }
@@ -398,6 +502,7 @@ def get_overview():
             "width_mm":  room.get("width_mm"),
             "height_mm": room.get("height_mm"),
             "furniture": room.get("furniture", []),
+            "doors":     room.get("doors", []),
             "zones":     room.get("zones", []),
             "sensors":   sensor_by_room.get(rid, []),
         })
@@ -442,6 +547,29 @@ def delete_furniture_item(room_id: str, furniture_id: str):
         "restart_required": True,
         "restart_hint":  "sudo systemctl restart hausradar",
     }
+
+
+@router.delete("/room/{room_id}/door/{door_id}", status_code=200)
+def delete_door(room_id: str, door_id: str):
+    """Löscht eine einzelne Tür aus rooms.json."""
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    before = len(room.get("doors", []))
+    room["doors"] = [d for d in room.get("doors", []) if d.get("id") != door_id]
+
+    if len(room["doors"]) == before:
+        raise HTTPException(status_code=404,
+                            detail=f"Tür '{door_id}' nicht in Raum '{room_id}'")
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Tür '%s' aus Raum '%s' gelöscht", door_id, room_id)
+    return {"deleted": door_id, "restart_required": True,
+            "restart_hint": "sudo systemctl restart hausradar"}
 
 
 @router.delete("/room/{room_id}/furniture", status_code=200)
