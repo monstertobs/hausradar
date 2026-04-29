@@ -91,4 +91,56 @@ static bool parse(const uint8_t* buf, Frame& out) {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Konfiguration: Multi-Target-Modus aktivieren
+//
+// Der LD2450 startet standardmäßig im Single-Target-Modus.
+// Diese Funktion sendet die Konfigurationssequenz über den TX-Pin um
+// Multi-Target-Tracking (bis zu 3 Ziele) zu aktivieren.
+//
+// Aufruf in setup() NACH Serial.begin() und NACH _ld2450Serial.begin().
+// Benötigt ~150 ms (3 × 50 ms Verzögerung zwischen Befehlen).
+// ---------------------------------------------------------------------------
+static void configureMultiTarget(HardwareSerial& serial) {
+    // Konfigurationsrahmen-Format:
+    //   Header:  FD FC FB FA
+    //   Länge:   2 Bytes LE (Länge der Nutzdaten inkl. Befehlswort)
+    //   Befehl:  2 Bytes LE
+    //   Daten:   0-n Bytes
+    //   Ende:    04 03 02 01
+
+    // 1. Konfigurationsmodus aktivieren (Befehl 0x00FF, Daten: 0x01 0x00)
+    const uint8_t enterCfg[] = {
+        0xFD, 0xFC, 0xFB, 0xFA,
+        0x04, 0x00,
+        0xFF, 0x00,
+        0x01, 0x00,
+        0x04, 0x03, 0x02, 0x01
+    };
+    serial.write(enterCfg, sizeof(enterCfg));
+    delay(50);
+
+    // 2. Multi-Target-Modus setzen (Befehl 0x0090, Daten: 0x01 0x00 = Multi)
+    //    0x00 0x00 = Single-Target, 0x01 0x00 = Multi-Target
+    const uint8_t setMulti[] = {
+        0xFD, 0xFC, 0xFB, 0xFA,
+        0x04, 0x00,
+        0x90, 0x00,
+        0x01, 0x00,
+        0x04, 0x03, 0x02, 0x01
+    };
+    serial.write(setMulti, sizeof(setMulti));
+    delay(50);
+
+    // 3. Konfigurationsmodus beenden (Befehl 0x00FE, keine Daten)
+    const uint8_t exitCfg[] = {
+        0xFD, 0xFC, 0xFB, 0xFA,
+        0x02, 0x00,
+        0xFE, 0x00,
+        0x04, 0x03, 0x02, 0x01
+    };
+    serial.write(exitCfg, sizeof(exitCfg));
+    delay(50);
+}
+
 } // namespace LD2450

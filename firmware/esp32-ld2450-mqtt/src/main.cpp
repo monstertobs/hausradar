@@ -266,6 +266,10 @@ void setup() {
     Serial.printf("  Sensor: %s  Raum: %s  UART2 RX=GPIO%d  %d Baud\n",
                   SENSOR_ID, ROOM_ID, LD2450_RX_PIN, LD2450_BAUD);
     _ld2450Serial.begin(LD2450_BAUD, SERIAL_8N1, LD2450_RX_PIN, LD2450_TX_PIN);
+    delay(100);  // Sensor braucht kurz nach UART-Init
+    Serial.println("[LD2450] Aktiviere Multi-Target-Modus …");
+    LD2450::configureMultiTarget(_ld2450Serial);
+    Serial.println("[LD2450] Konfiguration gesendet.");
 #endif
 
     lastStep    = millis();
