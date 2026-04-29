@@ -38,6 +38,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from app.version import __version__ as _current_version
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/update", tags=["update"])
 
@@ -123,9 +125,18 @@ def get_status():
         with _lock:
             phase = _state["phase"]
 
+        # Version aus origin/main lesen (VERSION-Datei im Remote-Branch)
+        if fetch_ok:
+            r7 = _git(["show", "origin/main:VERSION"])
+            rem_version = r7.stdout.strip() if r7.returncode == 0 else ""
+        else:
+            rem_version = ""
+
         return {
-            "current":          {"hash": cur_hash[:8], "message": cur_msg, "date": cur_date},
-            "latest":           {"hash": rem_hash[:8], "message": rem_msg, "date": rem_date},
+            "current":          {"hash": cur_hash[:8], "message": cur_msg,
+                                 "date": cur_date, "version": _current_version},
+            "latest":           {"hash": rem_hash[:8], "message": rem_msg,
+                                 "date": rem_date, "version": rem_version},
             "update_available": behind_by > 0,
             "behind_by":        behind_by,
             "new_commits":      new_commits,

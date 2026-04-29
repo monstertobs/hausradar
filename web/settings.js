@@ -35,11 +35,13 @@ async function _loadHealth() {
 }
 
 function _renderHealth(el, h) {
+  const version = h.version ? `v${esc(h.version)}` : "–";
   const rows = [
-    ["Backend",          _dot(true) + " OK"],
-    ["Uptime",           _fmt_uptime(h.uptime_s)],
-    ["Datenbank",        h.db_ok   ? _dot(true)  + " OK"        : _dot(false) + " Fehler"],
-    ["MQTT",             h.mqtt_connected ? _dot(true) + " Verbunden" : _dot(false) + " Kein Broker"],
+    ["Version",           `<strong style="color:var(--text);font-size:1rem">${version}</strong>`],
+    ["Backend",           _dot(true) + " OK"],
+    ["Uptime",            _fmt_uptime(h.uptime_s)],
+    ["Datenbank",         h.db_ok          ? _dot(true)  + " OK"        : _dot(false) + " Fehler"],
+    ["MQTT",              h.mqtt_connected ? _dot(true) + " Verbunden"  : _dot(false) + " Kein Broker"],
     ["WebSocket-Clients", String(h.ws_clients)],
   ];
 
@@ -160,20 +162,22 @@ function _renderVersionInfo(s) {
   const infoEl = document.getElementById("update-version-info");
   const actEl  = document.getElementById("update-actions");
 
+  const curVersion = s.current.version ? `<strong style="color:var(--text)">v${esc(s.current.version)}</strong> &nbsp;` : "";
   const curHtml = `
     <div style="font-size:.82rem;color:var(--muted)">
       <span style="color:var(--text);font-weight:600">Installiert:</span>
-      <code style="background:var(--border);border-radius:3px;padding:1px 5px">${esc(s.current.hash)}</code>
+      ${curVersion}<code style="background:var(--border);border-radius:3px;padding:1px 5px">${esc(s.current.hash)}</code>
       ${esc(s.current.date)}
       &nbsp;·&nbsp; ${esc(s.current.message)}
     </div>`;
 
   let latestHtml = "";
   if (s.fetch_ok) {
+    const remVersion = s.latest.version ? `<strong style="color:${s.update_available ? '#22c55e' : 'var(--text)'}">v${esc(s.latest.version)}</strong> &nbsp;` : "";
     latestHtml = `
       <div style="font-size:.82rem;color:var(--muted);margin-top:4px">
         <span style="color:var(--text);font-weight:600">GitHub:</span>
-        <code style="background:var(--border);border-radius:3px;padding:1px 5px">${esc(s.latest.hash)}</code>
+        ${remVersion}<code style="background:var(--border);border-radius:3px;padding:1px 5px">${esc(s.latest.hash)}</code>
         ${esc(s.latest.date)}
         &nbsp;·&nbsp; ${esc(s.latest.message)}
       </div>`;

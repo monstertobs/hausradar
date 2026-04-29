@@ -15,6 +15,7 @@ from starlette.types import ASGIApp
 
 from app.config import load_rooms, load_sensors, load_settings
 from app.api import rooms, sensors, motion, history, profile, calibrate, update
+from app.version import __version__
 from app.websocket_service import manager as ws_manager
 from app import database as db
 from app import live_state
@@ -158,7 +159,7 @@ async def lifespan(app: FastAPI):
 # App + Middleware-Registrierung
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="HausRadar", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="HausRadar", version=__version__, lifespan=lifespan)
 
 # Reihenfolge: äußerste Middleware zuerst hinzufügen
 app.add_middleware(SecurityHeadersMiddleware)
@@ -183,6 +184,7 @@ def health():
     return {
         "status":         "ok",
         "service":        "hausradar",
+        "version":        __version__,
         "uptime_s":       round(time.monotonic() - _start_time, 1),
         "ws_clients":     ws_manager.connection_count,
         "mqtt_connected": mqtt_service.connected,
