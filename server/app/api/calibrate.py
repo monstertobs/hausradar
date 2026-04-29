@@ -376,8 +376,10 @@ def save_calibration(session_id: str, request: Request):
     new_w = computed["width_mm"]
     new_h = computed["height_mm"]
 
-    room_obj["width_mm"]  = new_w
-    room_obj["height_mm"] = new_h
+    # Schutzvalidierung: negative Maße können durch falsche Eckenreihenfolge
+    # entstehen – Absolutwert verwenden damit rooms.json valide bleibt.
+    room_obj["width_mm"]  = max(abs(new_w),  1)
+    room_obj["height_mm"] = max(abs(new_h),  1)
 
     # Möbel in furniture[] + ggf. zones[] schreiben
     furniture_list = room_obj.setdefault("furniture", [])
@@ -707,9 +709,13 @@ def patch_room(room_id: str, body: PatchRoomRequest):
 
     updated = {}
     if body.width_mm is not None:
+        if body.width_mm <= 0:
+            raise HTTPException(status_code=422, detail="width_mm muss positiv sein")
         room["width_mm"] = body.width_mm
         updated["width_mm"] = body.width_mm
     if body.height_mm is not None:
+        if body.height_mm <= 0:
+            raise HTTPException(status_code=422, detail="height_mm muss positiv sein")
         room["height_mm"] = body.height_mm
         updated["height_mm"] = body.height_mm
 

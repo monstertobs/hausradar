@@ -167,6 +167,22 @@ def compute_room(session_id: str) -> dict:
     sensor_x_mm = -min_rx
     sensor_y_mm = 0
 
+    # Schutzmechanismus: negative Werte entstehen wenn die "hinteren" Ecken
+    # tatsächlich vor dem Sensor lagen (falsche Reihenfolge oder Sensor dreht
+    # in die falsche Richtung). Absolutwert liefert plausibles Ergebnis;
+    # eine Warnung im Ergebnis informiert den Nutzer.
+    warnings = []
+    if height_mm < 0:
+        height_mm = abs(height_mm)
+        warnings.append(
+            "height_mm war negativ – Absolutwert verwendet. "
+            "Bitte Eckenreihenfolge prüfen: back_left/back_right müssen "
+            "die Wand gegenüber dem Sensor sein."
+        )
+    if width_mm <= 0:
+        width_mm = abs(width_mm)
+        warnings.append("width_mm war ≤ 0 – Absolutwert verwendet.")
+
     result = {
         "width_mm":     round(width_mm),
         "height_mm":    round(height_mm),
@@ -174,6 +190,9 @@ def compute_room(session_id: str) -> dict:
         "sensor_y_mm":  sensor_y_mm,
         "rotation_deg": rotation_deg,
     }
+    if warnings:
+        result["warnings"] = warnings
+
     session["computed"] = result
     return result
 
