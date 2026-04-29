@@ -10,9 +10,11 @@
  *   [28..29] Tail:    55 CC
  *
  * Kodierung je Ziel (8 Bytes, little-endian):
- *   Bytes 0-1  X-Koordinate [mm]:  Bit15=0 → positiv, Bit15=1 → negativ
- *   Bytes 2-3  Y-Koordinate [mm]:  gleiche Kodierung (in Praxis immer ≥ 0)
- *   Bytes 4-5  Geschwindigkeit [mm/s]: gleiche Kodierung (pos=weg, neg=hin)
+ *   Bytes 0-1  X-Koordinate [mm]:  Bit15=0 → positiv (rechts), Bit15=1 → negativ (links)
+ *   Bytes 2-3  Y-Koordinate [mm]:  Bit15=1 → positiv (vor Sensor), Bit15=0 → negativ
+ *                                  ACHTUNG: Y hat UMGEKEHRTE Sign-Bit-Logik gegenüber X!
+ *                                  In der Praxis immer positiv (Ziele immer vor dem Sensor).
+ *   Bytes 4-5  Geschwindigkeit [mm/s]: gleiche Kodierung wie X (pos=weg, neg=hin)
  *   Bytes 6-7  Auflösung [mm]: Messgate-Breite (unsigned)
  *
  * Kein Ziel (leerer Slot): X == 0 AND Y == 0 AND Speed == 0
@@ -48,10 +50,17 @@ struct Frame {
     uint8_t target_count;
 };
 
-// Dekodiert einen 16-Bit-Rohwert: Bit15=1 → negatives Vorzeichen
-static inline int16_t decodeCoord(uint16_t raw) {
+// Dekodiert X / Speed: Bit15=1 → negativ, Bit15=0 → positiv
+static inline int16_t decodeCoordX(uint16_t raw) {
     return (raw & 0x8000u) ? -(int16_t)(raw & 0x7FFFu)
                            :  (int16_t)(raw & 0x7FFFu);
+}
+
+// Dekodiert Y: Bit15=1 → positiv (vor dem Sensor), Bit15=0 → negativ
+// Umgekehrte Sign-Bit-Logik gegenüber X – so liefert der LD2450 die Y-Achse.
+static inline int16_t decodeCoordY(uint16_t raw) {
+    return (raw & 0x8000u) ?  (int16_t)(raw & 0x7FFFu)
+                           : -(int16_t)(raw & 0x7FFFu);
 }
 
 // Parst einen vollständigen 30-Byte-Frame.
@@ -71,9 +80,9 @@ static bool parse(const uint8_t* buf, Frame& out) {
         uint16_t rr = (uint16_t)p[6] | ((uint16_t)p[7] << 8);
 
         out.targets[i] = {
-            decodeCoord(rx),
-            decodeCoord(ry),
-            decodeCoord(rs),
+            decodeCoordX(rx),
+            decodeCoordY(ry),
+            decodeCoordX(rs),
             rr,
             (rx != 0 || ry != 0 || rs != 0),
         };
