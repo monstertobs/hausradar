@@ -13,6 +13,7 @@
       <a href="index.html">Übersicht</a>
       <a href="profiles.html">Analyse</a>
       <a href="settings.html" class="active">Einstellungen</a>
+      <a href="calibrate.html">Kalibrierung</a>
     </nav>
     <span id="status-badge" class="badge badge--connecting">Verbinde …</span>
   </header>
@@ -47,6 +48,42 @@
       <div id="settings-sensors" class="sensor-grid">
         <p class="muted">Lade Sensoren …</p>
       </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Software-Update                                                      -->
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card" id="update-section">
+      <h2>SOFTWARE-UPDATE</h2>
+
+      <!-- Versions-Info -->
+      <div id="update-version-info" style="margin-bottom:16px">
+        <p class="muted">Klicke „Auf Updates prüfen" um den Stand mit GitHub zu vergleichen.</p>
+      </div>
+
+      <!-- Aktions-Buttons -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" id="update-actions">
+        <button id="btn-check-update" class="btn-secondary">
+          🔍 Auf Updates prüfen
+        </button>
+      </div>
+
+      <!-- Fortschritt -->
+      <div id="update-progress" style="display:none;margin-top:20px">
+        <!-- Fortschrittsbalken -->
+        <div style="background:var(--border);border-radius:4px;height:8px;margin-bottom:12px;overflow:hidden">
+          <div id="update-bar" style="height:100%;width:0%;background:#3b82f6;
+               border-radius:4px;transition:width .4s ease"></div>
+        </div>
+        <!-- Log-Ausgabe -->
+        <div id="update-log" style="
+          background:#0a0d14;border:1px solid var(--border);border-radius:6px;
+          padding:12px;font-family:monospace;font-size:.78rem;
+          max-height:260px;overflow-y:auto;line-height:1.6"></div>
+      </div>
+
+      <!-- Ergebnis -->
+      <div id="update-result" style="display:none;margin-top:16px"></div>
     </section>
 
     <!-- ------------------------------------------------------------------ -->

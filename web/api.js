@@ -12,9 +12,16 @@ function esc(str) {
     .replace(/'/g, "&#39;");
 }
 
-async function apiFetch(path) {
-  const res = await fetch(API_BASE + path);
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${path}`);
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API_BASE + path, options);
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).detail ?? ""; } catch (_) {}
+    throw new Error(detail || `HTTP ${res.status}: ${path}`);
+  }
+  // DELETE/204 oder leere Antwort
+  const ct = res.headers.get("content-type") || "";
+  if (res.status === 204 || !ct.includes("application/json")) return null;
   return res.json();
 }
 

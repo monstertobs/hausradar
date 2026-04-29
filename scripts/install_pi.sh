@@ -171,6 +171,16 @@ EOF
 
 ok "Service-Datei geschrieben: $SERVICE_FILE"
 
+# ---------------------------------------------------------------------------
+# sudoers: Web-Update-Funktion darf den Dienst ohne Passwort neu starten
+# ---------------------------------------------------------------------------
+SUDOERS_FILE="/etc/sudoers.d/hausradar"
+SYSTEMCTL_BIN="$(which systemctl)"
+echo "${INSTALL_USER} ALL=(ALL) NOPASSWD: ${SYSTEMCTL_BIN} restart hausradar" \
+    > "$SUDOERS_FILE"
+chmod 440 "$SUDOERS_FILE"
+ok "sudoers-Eintrag gesetzt: $SUDOERS_FILE"
+
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"

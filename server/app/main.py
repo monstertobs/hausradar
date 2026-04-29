@@ -14,7 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from app.config import load_rooms, load_sensors, load_settings
-from app.api import rooms, sensors, motion, history, profile, calibrate
+from app.api import rooms, sensors, motion, history, profile, calibrate, update
 from app.websocket_service import manager as ws_manager
 from app import database as db
 from app import live_state
@@ -175,6 +175,7 @@ app.include_router(motion.router,    prefix="/api")
 app.include_router(history.router,   prefix="/api")
 app.include_router(profile.router,   prefix="/api")
 app.include_router(calibrate.router, prefix="/api")
+app.include_router(update.router,   prefix="/api")
 
 
 @app.get("/api/health")

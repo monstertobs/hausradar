@@ -99,6 +99,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 3b. sudoers-Eintrag prüfen (für Web-Update-Funktion benötigt)
+# ---------------------------------------------------------------------------
+SUDOERS_FILE="/etc/sudoers.d/hausradar"
+CURRENT_USER="${SUDO_USER:-$(whoami)}"
+if [[ ! -f "$SUDOERS_FILE" ]]; then
+    info "Richte sudoers-Eintrag für Web-Update ein …"
+    SYSTEMCTL_BIN="$(which systemctl)"
+    echo "${CURRENT_USER} ALL=(ALL) NOPASSWD: ${SYSTEMCTL_BIN} restart hausradar" \
+        | sudo tee "$SUDOERS_FILE" > /dev/null
+    sudo chmod 440 "$SUDOERS_FILE"
+    ok "sudoers gesetzt ($SUDOERS_FILE)"
+else
+    ok "sudoers-Eintrag vorhanden"
+fi
+
+# ---------------------------------------------------------------------------
 # 4. systemd-Unit neu laden (falls Service-Datei geändert)
 # ---------------------------------------------------------------------------
 step "4. systemd"
