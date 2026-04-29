@@ -2,6 +2,11 @@
 Kalibrierungs-API für HausRadar.
 
 Endpunkte:
+  GET    /api/calibrate/overview                               → Alle gespeicherten Kalibrierungen
+  DELETE /api/calibrate/room/{room_id}/furniture/{fid}         → Einzelnes Möbelstück löschen
+  DELETE /api/calibrate/room/{room_id}/furniture               → Alle Möbel eines Raums löschen
+  DELETE /api/calibrate/room/{room_id}/reset                   → Raum-Kalibrierung zurücksetzen
+
   POST   /api/calibrate/session                                → Session anlegen
   GET    /api/calibrate/session/{sid}                          → Session lesen
   DELETE /api/calibrate/session/{sid}                          → Session löschen
@@ -340,4 +345,186 @@ def save_calibration(session_id: str, request: Request):
         "furniture_saved": len([f for f in session["furniture"] if f.get("computed")]),
         "restart_required": True,
         "restart_hint": "sudo systemctl restart hausradar",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Übersicht gespeicherter Kalibrierungen
+# ---------------------------------------------------------------------------
+
+def _load_json_file(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{path.name} lesen fehlgeschlagen: {e}")
+
+
+def _write_json_file(path: Path, data) -> None:
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{path.name} schreiben fehlgeschlagen: {e}")
+
+
+@router.get("/overview")
+def get_overview():
+    """
+    Gibt alle gespeicherten Kalibrierungen zurück – kombiniert aus
+    rooms.json (Raummaße, Möbel) und sensors.json (Sensorposition).
+    """
+    rooms   = _load_json_file(CONFIG_DIR / "rooms.json")
+    sensors = _load_json_file(CONFIG_DIR / "sensors.json")
+
+    sensor_by_room: dict = {}
+    for s in sensors:
+        rid = s.get("room_id")
+        if rid:
+            sensor_by_room.setdefault(rid, []).append({
+                "id":           s.get("id"),
+                "name":         s.get("name"),
+                "x_mm":         s.get("x_mm"),
+                "y_mm":         s.get("y_mm"),
+                "rotation_deg": s.get("rotation_deg"),
+                "flip_x":       s.get("flip_x", False),
+                "enabled":      s.get("enabled", True),
+            })
+
+    result = []
+    for room in rooms:
+        rid = room.get("id")
+        result.append({
+            "id":        rid,
+            "name":      room.get("name"),
+            "width_mm":  room.get("width_mm"),
+            "height_mm": room.get("height_mm"),
+            "furniture": room.get("furniture", []),
+            "zones":     room.get("zones", []),
+            "sensors":   sensor_by_room.get(rid, []),
+        })
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Möbel löschen
+# ---------------------------------------------------------------------------
+
+@router.delete("/room/{room_id}/furniture/{furniture_id}", status_code=200)
+def delete_furniture_item(room_id: str, furniture_id: str):
+    """Löscht ein einzelnes Möbelstück (und die zugehörige Zone) aus rooms.json."""
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    before_furn  = len(room.get("furniture", []))
+    before_zones = len(room.get("zones", []))
+
+    room["furniture"] = [f for f in room.get("furniture", []) if f.get("id") != furniture_id]
+    room["zones"]     = [z for z in room.get("zones", [])     if z.get("id") != furniture_id]
+
+    deleted_furn  = before_furn  - len(room["furniture"])
+    deleted_zones = before_zones - len(room["zones"])
+
+    if deleted_furn == 0:
+        raise HTTPException(status_code=404,
+                            detail=f"Möbelstück '{furniture_id}' nicht in Raum '{room_id}'")
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Möbelstück '%s' aus Raum '%s' gelöscht (%d Zone(n) mitgelöscht)",
+                furniture_id, room_id, deleted_zones)
+
+    return {
+        "deleted":       furniture_id,
+        "zones_removed": deleted_zones,
+        "restart_required": True,
+        "restart_hint":  "sudo systemctl restart hausradar",
+    }
+
+
+@router.delete("/room/{room_id}/furniture", status_code=200)
+def delete_all_furniture(room_id: str):
+    """Löscht alle Möbel eines Raums. Zonen die aus Möbeln stammen werden ebenfalls entfernt."""
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    furniture = room.get("furniture", [])
+    furn_ids  = {f.get("id") for f in furniture}
+    count     = len(furniture)
+
+    room["furniture"] = []
+    # Nur Zonen entfernen die aus Möbeln stammen (gleiche id)
+    room["zones"] = [z for z in room.get("zones", []) if z.get("id") not in furn_ids]
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Alle %d Möbelstück(e) aus Raum '%s' gelöscht", count, room_id)
+
+    return {
+        "deleted_count":    count,
+        "restart_required": True,
+        "restart_hint":     "sudo systemctl restart hausradar",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Raum-Kalibrierung zurücksetzen
+# ---------------------------------------------------------------------------
+
+@router.delete("/room/{room_id}/reset", status_code=200)
+def reset_room_calibration(room_id: str):
+    """
+    Setzt die Kalibrierung eines Raums zurück:
+      - Möbel und daraus entstandene Zonen werden gelöscht
+      - Raummaße bleiben erhalten (nur Möbel/Zonen)
+      - Sensorposition wird auf Standardwerte zurückgesetzt (x=width/2, y=0, rotation=0)
+    """
+    rooms_path   = CONFIG_DIR / "rooms.json"
+    sensors_path = CONFIG_DIR / "sensors.json"
+
+    rooms   = _load_json_file(rooms_path)
+    sensors = _load_json_file(sensors_path)
+
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    # Möbel-IDs sammeln um zugehörige Zonen zu löschen
+    furn_ids = {f.get("id") for f in room.get("furniture", [])}
+    furn_count = len(room.get("furniture", []))
+
+    room["furniture"] = []
+    room["zones"]     = [z for z in room.get("zones", []) if z.get("id") not in furn_ids]
+
+    _write_json_file(rooms_path, rooms)
+
+    # Sensoren dieses Raums auf Standardposition zurücksetzen
+    reset_sensors = []
+    default_x = round(room.get("width_mm", 0) / 2)
+    for sensor in sensors:
+        if sensor.get("room_id") == room_id:
+            sensor["x_mm"]         = default_x
+            sensor["y_mm"]         = 0
+            sensor["rotation_deg"] = 0
+            sensor.pop("flip_x", None)
+            reset_sensors.append(sensor["id"])
+
+    _write_json_file(sensors_path, sensors)
+
+    logger.info(
+        "Kalibrierung von Raum '%s' zurückgesetzt: %d Möbel gelöscht, %d Sensor(en) resettet",
+        room_id, furn_count, len(reset_sensors),
+    )
+
+    return {
+        "room_id":          room_id,
+        "furniture_deleted": furn_count,
+        "sensors_reset":    reset_sensors,
+        "restart_required": True,
+        "restart_hint":     "sudo systemctl restart hausradar",
     }

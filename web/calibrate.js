@@ -578,6 +578,8 @@ function renderSaveStep(body) {
       // Session-ID zurücksetzen (ist serverseitig gelöscht)
       STATE.sessionId = null;
       $("btn-save").textContent = "✓ Gespeichert";
+      // Übersicht aktualisieren
+      document.dispatchEvent(new Event("calibration-saved"));
     } catch (e) {
       $("save-result").innerHTML =
         `<p style="color:var(--red)">✗ Fehler: ${esc(e.message)}</p>`;
@@ -680,10 +682,233 @@ function initStatusBadge() {
 }
 
 // ---------------------------------------------------------------------------
+// Übersicht gespeicherter Kalibrierungen
+// ---------------------------------------------------------------------------
+
+async function loadOverview() {
+  const body = $("overview-body");
+  body.innerHTML = `<p class="muted">Lade …</p>`;
+  try {
+    const rooms = await apiFetch("/api/calibrate/overview");
+    renderOverview(rooms);
+  } catch (e) {
+    body.innerHTML = `<p style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
+  }
+}
+
+function renderOverview(rooms) {
+  const body = $("overview-body");
+  if (!rooms.length) {
+    body.innerHTML = `<p class="muted">Keine Räume konfiguriert.</p>`;
+    return;
+  }
+
+  body.innerHTML = rooms.map(room => overviewRoomHtml(room)).join("");
+
+  // Events binden
+  for (const room of rooms) {
+    // Gesamtreset
+    const btnReset = $(`btn-reset-room-${room.id}`);
+    if (btnReset) {
+      btnReset.addEventListener("click", () => confirmResetRoom(room.id, room.name));
+    }
+    // Alle Möbel löschen
+    const btnClearFurn = $(`btn-clear-furn-${room.id}`);
+    if (btnClearFurn) {
+      btnClearFurn.addEventListener("click", () => confirmClearFurniture(room.id, room.name));
+    }
+    // Einzelne Möbel löschen
+    for (const f of (room.furniture || [])) {
+      const btnDel = $(`btn-del-furn-${room.id}-${f.id}`);
+      if (btnDel) {
+        btnDel.addEventListener("click", () => confirmDeleteFurniture(room.id, f.id, f.name));
+      }
+    }
+    // Neue Kalibrierung für diesen Raum starten
+    const btnCal = $(`btn-calibrate-room-${room.id}`);
+    if (btnCal) {
+      btnCal.addEventListener("click", () => prefillWizard(room));
+    }
+  }
+}
+
+function overviewRoomHtml(room) {
+  const hasFurniture = (room.furniture || []).length > 0;
+  const sensors      = room.sensors || [];
+
+  const sensorHtml = sensors.length === 0
+    ? `<span class="muted" style="font-size:.8rem">Kein Sensor</span>`
+    : sensors.map(s => `
+        <div style="font-size:.82rem;color:var(--muted)">
+          <strong style="color:var(--text)">${esc(s.name)}</strong>
+          · x=${(s.x_mm/1000).toFixed(2)} m
+          · y=${(s.y_mm/1000).toFixed(2)} m
+          · rot=${s.rotation_deg.toFixed(1)}°
+          ${s.flip_x ? '· <span style="color:var(--yellow)">flip_x</span>' : ""}
+          ${!s.enabled ? '· <span style="color:var(--red)">deaktiviert</span>' : ""}
+        </div>`).join("");
+
+  const furnitureHtml = !hasFurniture
+    ? `<p class="muted" style="font-size:.8rem;margin:8px 0 0">Keine Möbel erfasst.</p>`
+    : `
+      <div class="furniture-list" style="margin-top:10px">
+        ${(room.furniture || []).map(f => `
+          <div class="furniture-item">
+            <div class="furniture-item-info">
+              <div class="furniture-item-name">${esc(f.name)}</div>
+              <div class="furniture-item-meta">
+                ${esc(f.type || "–")}
+                · ${(f.width_mm/1000).toFixed(2)} m × ${(f.height_mm/1000).toFixed(2)} m
+                · Position (${(f.x_mm/1000).toFixed(2)} m, ${(f.y_mm/1000).toFixed(2)} m)
+              </div>
+            </div>
+            <button class="btn-secondary"
+              style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
+              id="btn-del-furn-${esc(room.id)}-${esc(f.id)}">
+              🗑 Löschen
+            </button>
+          </div>`).join("")}
+      </div>
+      <div style="margin-top:8px">
+        <button class="btn-secondary"
+          style="font-size:.78rem;color:var(--red);border-color:var(--red)"
+          id="btn-clear-furn-${esc(room.id)}">
+          🗑 Alle Möbel löschen
+        </button>
+      </div>`;
+
+  return `
+    <div class="calibration-overview-room" style="
+      border:1px solid var(--border);border-radius:var(--radius);
+      padding:16px;margin-bottom:12px">
+
+      <!-- Kopfzeile -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:700;font-size:1rem">${esc(room.name)}</div>
+          <div style="font-size:.82rem;color:var(--muted);margin-top:2px">
+            ${(room.width_mm/1000).toFixed(2)} m × ${(room.height_mm/1000).toFixed(2)} m
+            · Fläche ~${((room.width_mm/1000)*(room.height_mm/1000)).toFixed(1)} m²
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-secondary" style="font-size:.78rem"
+            id="btn-calibrate-room-${esc(room.id)}">
+            🎯 Neu kalibrieren
+          </button>
+          <button class="btn-secondary"
+            style="font-size:.78rem;color:var(--red);border-color:var(--red)"
+            id="btn-reset-room-${esc(room.id)}">
+            ↺ Kalibrierung zurücksetzen
+          </button>
+        </div>
+      </div>
+
+      <!-- Sensor-Info -->
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;
+                    letter-spacing:.05em;margin-bottom:6px">Sensor</div>
+        ${sensorHtml}
+      </div>
+
+      <!-- Möbel -->
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;
+                    letter-spacing:.05em;margin-bottom:4px">
+          Möbel (${(room.furniture||[]).length})
+        </div>
+        ${furnitureHtml}
+      </div>
+    </div>`;
+}
+
+// ─── Bestätigungs-Dialoge + API-Calls ──────────────────────────────────────
+
+async function confirmDeleteFurniture(roomId, furnId, furnName) {
+  if (!confirm(`Möbelstück "${furnName}" wirklich löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;
+  try {
+    await apiFetch(`/api/calibrate/room/${roomId}/furniture/${furnId}`, { method: "DELETE" });
+    showRestartHint();
+    loadOverview();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+async function confirmClearFurniture(roomId, roomName) {
+  if (!confirm(`Alle Möbel in "${roomName}" löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;
+  try {
+    await apiFetch(`/api/calibrate/room/${roomId}/furniture`, { method: "DELETE" });
+    showRestartHint();
+    loadOverview();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+async function confirmResetRoom(roomId, roomName) {
+  if (!confirm(
+    `Kalibrierung für "${roomName}" vollständig zurücksetzen?\n\n` +
+    `• Alle Möbel und Möbel-Zonen werden gelöscht\n` +
+    `• Sensorposition wird auf Standardwerte zurückgesetzt\n\n` +
+    `Der Dienst muss danach neu gestartet werden.`
+  )) return;
+  try {
+    await apiFetch(`/api/calibrate/room/${roomId}/reset`, { method: "DELETE" });
+    showRestartHint();
+    loadOverview();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+function showRestartHint() {
+  // Kurze Einblendung oben auf der Seite
+  let hint = document.getElementById("restart-hint-banner");
+  if (!hint) {
+    hint = document.createElement("div");
+    hint.id = "restart-hint-banner";
+    hint.style.cssText = `
+      position:fixed;top:60px;left:50%;transform:translateX(-50%);
+      background:#052e16;border:1px solid #22c55e;border-radius:8px;
+      padding:10px 20px;font-size:.875rem;z-index:9999;
+      box-shadow:0 4px 20px rgba(0,0,0,.5)`;
+    document.body.appendChild(hint);
+  }
+  hint.innerHTML = `✅ Gespeichert &nbsp;·&nbsp; <code style="color:#86efac">sudo systemctl restart hausradar</code>`;
+  hint.style.display = "block";
+  clearTimeout(hint._timer);
+  hint._timer = setTimeout(() => { hint.style.display = "none"; }, 6000);
+}
+
+// Wizard mit vorausgefülltem Sensor/Raum starten
+function prefillWizard(room) {
+  const firstSensor = (room.sensors || [])[0];
+  if (firstSensor) {
+    const selSensor = $("sel-sensor");
+    if (selSensor) {
+      selSensor.value = firstSensor.id;
+      selSensor.dispatchEvent(new Event("change"));
+    }
+  }
+  // Smooth-scroll zum Wizard
+  const wizardSection = $("step-select");
+  if (wizardSection) {
+    wizardSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", () => {
   loadSelectors();
+  loadOverview();
   initStatusBadge();
+
+  $("btn-reload-overview")?.addEventListener("click", loadOverview);
+
+  // Übersicht nach erfolgreichem Speichern automatisch aktualisieren
+  document.addEventListener("calibration-saved", loadOverview);
 });

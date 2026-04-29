@@ -19,8 +19,26 @@
   </header>
 
   <main>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- Gespeicherte Kalibrierungen                               -->
+    <!-- ══════════════════════════════════════════════════════════ -->
     <section class="card">
-      <h2>RAUM-KALIBRIERUNG</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <h2 style="margin:0">GESPEICHERTE KALIBRIERUNGEN</h2>
+        <button class="btn-secondary" id="btn-reload-overview" style="font-size:.8rem">↺ Aktualisieren</button>
+      </div>
+
+      <div id="overview-body">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- Neue Kalibrierung                                         -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <section class="card">
+      <h2>NEUE KALIBRIERUNG</h2>
       <p class="muted" style="margin-bottom:20px">
         Laufe die Ecken deines Raums und deine Möbel ab – HausRadar berechnet
         daraus automatisch Raummaße und Sensorposition.
@@ -55,9 +73,10 @@
         <div class="wizard-steps" id="wizard-steps-bar"></div>
       </div>
 
-      <!-- ── Wizard-Inhalte (werden per JS eingeblendet) ── -->
+      <!-- ── Wizard-Inhalte ── -->
       <div id="wizard-body" style="display:none"></div>
     </section>
+
   </main>
 
   <script src="api.js"></script>
