@@ -45,7 +45,10 @@ class MqttService:
         self._topic     = cfg.get("topic", "hausradar/sensor/+/state")
         reconnect_delay = cfg.get("reconnect_delay_seconds", 5)
 
-        client = mqtt.Client(client_id="hausradar-server")
+        client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+            client_id="hausradar-server",
+        )
         client.reconnect_delay_set(min_delay=1, max_delay=reconnect_delay * 4)
         client.on_connect    = self._on_connect
         client.on_disconnect = self._on_disconnect
