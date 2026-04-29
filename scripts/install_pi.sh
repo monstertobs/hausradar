@@ -66,7 +66,7 @@ echo ""
 step "1/6  System-Pakete installieren"
 
 apt-get update -qq
-PKGS=(python3 python3-venv python3-pip mosquitto mosquitto-clients sqlite3)
+PKGS=(python3 python3-venv python3-pip mosquitto mosquitto-clients sqlite3 git)
 MISSING=()
 for pkg in "${PKGS[@]}"; do
     dpkg -s "$pkg" &>/dev/null || MISSING+=("$pkg")
@@ -85,12 +85,16 @@ fi
 # ---------------------------------------------------------------------------
 step "2/6  Python-Virtualenv einrichten"
 
-if [[ ! -d "$VENV_DIR" ]]; then
+if [[ ! -x "$VENV_DIR/bin/pip" ]]; then
+    if [[ -d "$VENV_DIR" ]]; then
+        warn "Unvollständiges Virtualenv gefunden – wird neu erstellt …"
+        rm -rf "$VENV_DIR"
+    fi
     info "Erstelle Virtualenv in $VENV_DIR …"
     sudo -u "$INSTALL_USER" python3 -m venv "$VENV_DIR"
     ok "Virtualenv erstellt"
 else
-    ok "Virtualenv bereits vorhanden – überspringe Erstellung"
+    ok "Virtualenv bereits vorhanden"
 fi
 
 info "Abhängigkeiten installieren (kann einige Minuten dauern) …"
