@@ -982,6 +982,22 @@ function renderOverview(rooms) {
         });
       }
     }
+    // Möbel hinzufügen
+    const btnAddFurn = $(`btn-add-furn-${room.id}`);
+    if (btnAddFurn) {
+      btnAddFurn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        addFurnitureToRoom(btnAddFurn, room.id, STATE.furnitureTypes);
+      });
+    }
+    // Tür hinzufügen
+    const btnAddDoor = $(`btn-add-door-${room.id}`);
+    if (btnAddDoor) {
+      btnAddDoor.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        addDoorToRoom(btnAddDoor, room.id, rooms);
+      });
+    }
     // Neue Kalibrierung für diesen Raum starten
     const btnCal = $(`btn-calibrate-room-${room.id}`);
     if (btnCal) {
@@ -1028,9 +1044,8 @@ function overviewRoomHtml(room) {
             id="btn-edit-sensor-${esc(room.id)}-${esc(s.id)}">✏️</button>
         </div>`).join("");
 
-  const furnitureHtml = !hasFurniture
-    ? `<p class="muted" style="font-size:.8rem;margin:8px 0 0">Keine Möbel erfasst.</p>`
-    : `
+  const furnitureHtml = `
+    ${hasFurniture ? `
       <div class="furniture-list" style="margin-top:10px">
         ${(room.furniture || []).map(f => `
           <div class="furniture-item">
@@ -1047,19 +1062,18 @@ function overviewRoomHtml(room) {
                 id="btn-edit-furn-${esc(room.id)}-${esc(f.id)}">✏️</button>
               <button class="btn-secondary"
                 style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
-                id="btn-del-furn-${esc(room.id)}-${esc(f.id)}">
-                🗑
-              </button>
+                id="btn-del-furn-${esc(room.id)}-${esc(f.id)}">🗑</button>
             </div>
           </div>`).join("")}
-      </div>
-      <div style="margin-top:8px">
+      </div>` : `<p class="muted" style="font-size:.8rem;margin:8px 0 0">Keine Möbel erfasst.</p>`}
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn-secondary" style="font-size:.78rem"
+        id="btn-add-furn-${esc(room.id)}">＋ Möbel hinzufügen</button>
+      ${hasFurniture ? `
         <button class="btn-secondary"
           style="font-size:.78rem;color:var(--red);border-color:var(--red)"
-          id="btn-clear-furn-${esc(room.id)}">
-          🗑 Alle Möbel löschen
-        </button>
-      </div>`;
+          id="btn-clear-furn-${esc(room.id)}">🗑 Alle löschen</button>` : ""}
+    </div>`;
 
   return `
     <div class="calibration-overview-room" style="
@@ -1120,34 +1134,34 @@ function overviewRoomHtml(room) {
 // ─── Bestätigungs-Dialoge + API-Calls ──────────────────────────────────────
 
 function overviewDoorsHtml(room) {
-  const doors = room.doors || [];
-  if (!doors.length) {
-    return `<p class="muted" style="font-size:.8rem;margin:4px 0 0">Keine Türen erfasst.</p>`;
-  }
+  const doors     = room.doors || [];
   const wallNames = { top: "oben", bottom: "unten", left: "links", right: "rechts" };
   return `
-    <div class="furniture-list" style="margin-top:8px">
-      ${doors.map(d => `
-        <div class="furniture-item">
-          <div class="furniture-item-info">
-            <div class="furniture-item-name">${esc(d.name)}</div>
-            <div class="furniture-item-meta">
-              → ${esc(d.connects_to || "–")}
-              · Wand ${esc(wallNames[d.wall] || d.wall)}
-              · ${d.position_mm} mm ab Ecke
-              · ${d.width_mm} mm breit
+    ${doors.length ? `
+      <div class="furniture-list" style="margin-top:8px">
+        ${doors.map(d => `
+          <div class="furniture-item">
+            <div class="furniture-item-info">
+              <div class="furniture-item-name">${esc(d.name)}</div>
+              <div class="furniture-item-meta">
+                → ${esc(d.connects_to || "–")}
+                · Wand ${esc(wallNames[d.wall] || d.wall)}
+                · ${d.position_mm} mm ab Ecke
+                · ${d.width_mm} mm breit
+              </div>
             </div>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-            <button class="btn-edit-icon" title="Bearbeiten"
-              id="btn-edit-door-${esc(room.id)}-${esc(d.id)}">✏️</button>
-            <button class="btn-secondary"
-              style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
-              id="btn-del-door-${esc(room.id)}-${esc(d.id)}">
-              🗑
-            </button>
-          </div>
-        </div>`).join("")}
+            <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+              <button class="btn-edit-icon" title="Bearbeiten"
+                id="btn-edit-door-${esc(room.id)}-${esc(d.id)}">✏️</button>
+              <button class="btn-secondary"
+                style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red)"
+                id="btn-del-door-${esc(room.id)}-${esc(d.id)}">🗑</button>
+            </div>
+          </div>`).join("")}
+      </div>` : `<p class="muted" style="font-size:.8rem;margin:4px 0 0">Keine Türen erfasst.</p>`}
+    <div style="margin-top:10px">
+      <button class="btn-secondary" style="font-size:.78rem"
+        id="btn-add-door-${esc(room.id)}">＋ Tür hinzufügen</button>
     </div>`;
 }
 
@@ -1374,6 +1388,75 @@ async function editDoorItem(anchorEl, roomId, door, allRooms) {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
+    });
+    showRestartHint();
+    loadOverview();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Möbel / Tür direkt zur gespeicherten Kalibrierung hinzufügen
+// ---------------------------------------------------------------------------
+
+async function addFurnitureToRoom(anchorEl, roomId, furnitureTypes) {
+  const typeOptions = Object.fromEntries(
+    Object.entries(furnitureTypes || {}).map(([k, v]) => [k, v.de || k])
+  );
+  if (!Object.keys(typeOptions).length) {
+    typeOptions.sofa = "Sofa/Couch"; typeOptions.chair = "Stuhl/Sessel";
+    typeOptions.table = "Tisch"; typeOptions.desk = "Schreibtisch";
+    typeOptions.bed = "Bett"; typeOptions.cabinet = "Schrank"; typeOptions.other = "Sonstiges";
+  }
+  showEditModal(anchorEl, "Möbel hinzufügen", [
+    { key: "name",      label: "Name",            type: "text",     value: "" },
+    { key: "type",      label: "Typ",             type: "select",   value: "other", options: typeOptions },
+    { key: "x_mm",      label: "Position x (mm)", type: "number",   value: 500 },
+    { key: "y_mm",      label: "Position y (mm)", type: "number",   value: 500 },
+    { key: "width_mm",  label: "Breite (mm)",     type: "number",   value: 800 },
+    { key: "height_mm", label: "Tiefe (mm)",      type: "number",   value: 800 },
+    { key: "is_zone",   label: "Als Zone",        type: "checkbox", value: false },
+  ], async (fields) => {
+    if (!fields.name) { alert("Bitte einen Namen eingeben."); return; }
+    await apiFetch(`/api/calibrate/room/${roomId}/furniture`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name:      fields.name,
+        type:      fields.type || "other",
+        x_mm:      Number(fields.x_mm)      || 0,
+        y_mm:      Number(fields.y_mm)      || 0,
+        width_mm:  Number(fields.width_mm)  || 100,
+        height_mm: Number(fields.height_mm) || 100,
+        is_zone:   !!fields.is_zone,
+      }),
+    });
+    showRestartHint();
+    loadOverview();
+  });
+}
+
+async function addDoorToRoom(anchorEl, roomId, allRooms) {
+  const roomOptions = { "": "– (Außentür / kein Ziel)" };
+  for (const r of (allRooms || [])) roomOptions[r.id] = r.name;
+  const wallOptions = { top: "Oben (y=0-Wand)", bottom: "Unten", left: "Links", right: "Rechts" };
+  showEditModal(anchorEl, "Tür hinzufügen", [
+    { key: "name",        label: "Name",               type: "text",   value: "Tür" },
+    { key: "connects_to", label: "Führt zu",           type: "select", value: "", options: roomOptions },
+    { key: "wall",        label: "Wand",               type: "select", value: "top", options: wallOptions },
+    { key: "position_mm", label: "Abstand Ecke (mm)",  type: "number", value: 500 },
+    { key: "width_mm",    label: "Breite (mm)",        type: "number", value: 900 },
+  ], async (fields) => {
+    if (!fields.name) { alert("Bitte einen Namen eingeben."); return; }
+    await apiFetch(`/api/calibrate/room/${roomId}/door`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name:        fields.name,
+        connects_to: fields.connects_to || "",
+        wall:        fields.wall || "top",
+        position_mm: Number(fields.position_mm) || 0,
+        width_mm:    Number(fields.width_mm)    || 900,
+      }),
     });
     showRestartHint();
     loadOverview();

@@ -90,6 +90,26 @@ class PatchDoorRequest(BaseModel):
     width_mm:     Optional[int] = None
 
 
+class AddFurnitureDirectRequest(BaseModel):
+    """Möbelstück direkt zu einem Raum hinzufügen (ohne Kalibrierungs-Session)."""
+    name:      str
+    type:      str  = "other"
+    x_mm:      int
+    y_mm:      int
+    width_mm:  int
+    height_mm: int
+    is_zone:   bool = False
+
+
+class AddDoorDirectRequest(BaseModel):
+    """Tür direkt zu einem Raum hinzufügen (ohne Kalibrierungs-Session)."""
+    name:        str
+    connects_to: str  = ""
+    wall:        str  = "top"
+    position_mm: int  = 500
+    width_mm:    int  = 900
+
+
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
@@ -697,6 +717,90 @@ def reset_room_calibration(room_id: str):
 # ---------------------------------------------------------------------------
 # Einzelne Messwerte bearbeiten (PATCH)
 # ---------------------------------------------------------------------------
+
+@router.post("/room/{room_id}/furniture", status_code=201)
+def add_furniture_direct(room_id: str, body: AddFurnitureDirectRequest):
+    """Fügt ein Möbelstück direkt zu einem Raum hinzu (ohne Kalibrierungs-Session)."""
+    valid_walls = {"top", "bottom", "left", "right"}
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    if body.width_mm <= 0 or body.height_mm <= 0:
+        raise HTTPException(status_code=422, detail="width_mm und height_mm müssen positiv sein")
+
+    import uuid
+    furn_id = str(uuid.uuid4())[:8]
+
+    furn_entry = {
+        "id":         furn_id,
+        "name":       body.name,
+        "type":       body.type,
+        "x_mm":       body.x_mm,
+        "y_mm":       body.y_mm,
+        "width_mm":   body.width_mm,
+        "height_mm":  body.height_mm,
+    }
+
+    room.setdefault("furniture", []).append(furn_entry)
+
+    # Als Zone eintragen wenn gewünscht
+    if body.is_zone:
+        zone_entry = {
+            "id":        furn_id,
+            "name":      body.name,
+            "x_mm":      body.x_mm,
+            "y_mm":      body.y_mm,
+            "width_mm":  body.width_mm,
+            "height_mm": body.height_mm,
+        }
+        room.setdefault("zones", []).append(zone_entry)
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Möbelstück '%s' direkt zu Raum '%s' hinzugefügt", furn_id, room_id)
+    return {"room_id": room_id, "furniture_id": furn_id, "restart_required": True,
+            "restart_hint": "sudo systemctl restart hausradar"}
+
+
+@router.post("/room/{room_id}/door", status_code=201)
+def add_door_direct(room_id: str, body: AddDoorDirectRequest):
+    """Fügt eine Tür direkt zu einem Raum hinzu (ohne Kalibrierungs-Session)."""
+    valid_walls = {"top", "bottom", "left", "right"}
+    if body.wall not in valid_walls:
+        raise HTTPException(status_code=422,
+                            detail=f"Ungültige Wand '{body.wall}' – erlaubt: {valid_walls}")
+
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    if body.width_mm <= 0:
+        raise HTTPException(status_code=422, detail="width_mm muss positiv sein")
+    if body.position_mm < 0:
+        raise HTTPException(status_code=422, detail="position_mm darf nicht negativ sein")
+
+    import uuid
+    door_id = str(uuid.uuid4())[:8]
+
+    door_entry = {
+        "id":           door_id,
+        "name":         body.name,
+        "connects_to":  body.connects_to,
+        "wall":         body.wall,
+        "position_mm":  body.position_mm,
+        "width_mm":     body.width_mm,
+    }
+
+    room.setdefault("doors", []).append(door_entry)
+    _write_json_file(rooms_path, rooms)
+    logger.info("Tür '%s' direkt zu Raum '%s' hinzugefügt", door_id, room_id)
+    return {"room_id": room_id, "door_id": door_id, "restart_required": True,
+            "restart_hint": "sudo systemctl restart hausradar"}
+
 
 @router.patch("/room/{room_id}", status_code=200)
 def patch_room(room_id: str, body: PatchRoomRequest):
