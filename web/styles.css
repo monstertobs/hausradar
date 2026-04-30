@@ -415,6 +415,86 @@ main {
   opacity: .40;
 }
 
+/* ===== Floorplan Edit-Modus ===== */
+
+/* Karten-Header mit Titel + Button nebeneinander */
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.card-header-row h2 {
+  margin-bottom: 0;
+}
+
+/* Draggable-Gruppen im Edit-Modus */
+.fp-edit-mode .fp-draggable {
+  cursor: grab;
+}
+.fp-edit-mode .fp-draggable:active {
+  cursor: grabbing;
+}
+
+/* Möbel: gestrichelte Highlight-Umrandung im Edit-Modus */
+.fp-edit-mode .fp-draggable[data-drag="furniture"] rect {
+  stroke:           var(--accent);
+  stroke-width:     1.5;
+  stroke-dasharray: 4 2;
+  opacity: .9;
+}
+.fp-edit-mode .fp-draggable[data-drag="furniture"]:hover rect {
+  stroke: var(--yellow);
+}
+
+/* Türen: Highlight auf dem Türsymbol */
+.fp-edit-mode .fp-draggable[data-drag="door"] .door-symbol {
+  stroke:           var(--accent);
+  stroke-width:     1.5;
+  stroke-dasharray: 3 2;
+}
+.fp-edit-mode .fp-draggable[data-drag="door"]:hover .door-symbol {
+  stroke: var(--yellow);
+}
+
+/* Edit-Button: aktiver Zustand */
+.btn--edit-active {
+  border-color: var(--green);
+  color:        var(--green);
+}
+.btn--edit-active:hover {
+  background:   rgba(34, 197, 94, 0.1);
+  border-color: var(--green);
+  color:        var(--green);
+}
+
+/* Toast-Benachrichtigung (Speichern-Feedback) */
+.fp-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface);
+  border: 1px solid var(--green);
+  color: var(--green);
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  font-size: .85rem;
+  pointer-events: none;
+  z-index: 9999;
+  transition: transform .22s ease, opacity .22s ease;
+  opacity: 0;
+  white-space: nowrap;
+}
+.fp-toast--visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+.fp-toast--error {
+  border-color: var(--red);
+  color:        var(--red);
+}
+
 /* Legende */
 .fp-legend {
   display: flex;
@@ -463,6 +543,7 @@ main {
 }
 .btn:hover  { background: var(--border); color: var(--text); }
 .btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-sm     { padding: 4px 10px; font-size: .8rem; }
 .filter-select {
   padding: 5px 10px;
   border-radius: var(--radius);

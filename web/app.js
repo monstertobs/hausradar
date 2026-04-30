@@ -17,12 +17,28 @@ const liveCounter   = document.getElementById("live-counter");
 // ============================================================
 // Grundriss
 // ============================================================
-let floorplan = null;
+let floorplan    = null;
+let fpEditActive = false;
+const fpEditBtn  = document.getElementById("fp-edit-btn");
 
 function initFloorplan(rooms, sensors) {
   floorplan = new Floorplan("floorplan-container");
   floorplan.init(rooms, sensors);
 }
+
+fpEditBtn?.addEventListener("click", () => {
+  if (!floorplan) return;
+  fpEditActive = !fpEditActive;
+  if (fpEditActive) {
+    floorplan.enableEditMode();
+    fpEditBtn.textContent = "✅ Fertig";
+    fpEditBtn.classList.add("btn--edit-active");
+  } else {
+    floorplan.disableEditMode();
+    fpEditBtn.textContent = "✏️ Layout bearbeiten";
+    fpEditBtn.classList.remove("btn--edit-active");
+  }
+});
 
 // ============================================================
 // WebSocket – Auto-Reconnect alle 2 Sekunden

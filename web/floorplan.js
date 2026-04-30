@@ -12,6 +12,8 @@
  *   const fp = new Floorplan("floorplan-container");
  *   fp.init(rooms, sensors);      // einmalig nach API-Load
  *   fp.update(wsLiveData);        // bei jedem WebSocket-Frame
+ *   fp.enableEditMode();          // Möbel/Türen per Drag-and-Drop verschieben
+ *   fp.disableEditMode();
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -26,6 +28,7 @@ class Floorplan {
     this._rooms       = [];
     this._sensors     = [];
     this._roomRects   = {};   // room_id → <rect> element
+    this._roomScales  = {};   // room_id → { fp, scX, scY, room }
     this._trailLayer  = null;
     this._targetLayer = null;
     this._roomLastActive = {}; // room_id → Date.now()
@@ -33,6 +36,13 @@ class Floorplan {
     this.recentTimeoutMs = 30_000;
     this.trailMaxAgeMs   = 30_000;
     this.trailMaxPoints  = 150;
+
+    // Edit-Modus
+    this._editMode = false;
+    this._drag     = null;
+    this._boundOnPtrDown = null;
+    this._boundOnPtrMove = null;
+    this._boundOnPtrUp   = null;
   }
 
   // ----------------------------------------------------------------
@@ -111,6 +121,229 @@ class Floorplan {
   }
 
   // ----------------------------------------------------------------
+  // Edit-Modus: Möbel & Türen per Drag-and-Drop verschieben
+  // ----------------------------------------------------------------
+
+  enableEditMode() {
+    if (!this._svg || this._editMode) return;
+    this._editMode = true;
+    this._svg.classList.add("fp-edit-mode");
+    this._boundOnPtrDown = this._onEditPtrDown.bind(this);
+    this._svg.addEventListener("pointerdown", this._boundOnPtrDown);
+  }
+
+  disableEditMode() {
+    if (!this._svg || !this._editMode) return;
+    this._editMode = false;
+    this._svg.classList.remove("fp-edit-mode");
+    this._svg.removeEventListener("pointerdown", this._boundOnPtrDown);
+    if (this._drag) {
+      window.removeEventListener("pointermove", this._boundOnPtrMove);
+      window.removeEventListener("pointerup",   this._boundOnPtrUp);
+      this._drag = null;
+    }
+  }
+
+  _svgCoords(e) {
+    const pt  = this._svg.createSVGPoint();
+    const src = e.changedTouches ? e.changedTouches[0] : e;
+    pt.x = src.clientX;
+    pt.y = src.clientY;
+    return pt.matrixTransform(this._svg.getScreenCTM().inverse());
+  }
+
+  _onEditPtrDown(e) {
+    const el = e.target.closest("[data-drag]");
+    if (!el) return;
+
+    // Nur Elemente mit ID können gespeichert werden
+    if (!el.dataset.id) return;
+
+    e.preventDefault();
+
+    const roomId = el.dataset.roomId;
+    const sc = this._roomScales[roomId];
+    if (!sc) return;
+
+    const pt   = this._svgCoords(e);
+    const type = el.dataset.drag;
+
+    this._drag = { el, type, roomId, sc, id: el.dataset.id,
+                   startX: pt.x, startY: pt.y, dirty: false };
+
+    if (type === "furniture") {
+      this._drag.origXMm = parseFloat(el.dataset.xMm);
+      this._drag.origYMm = parseFloat(el.dataset.yMm);
+      this._drag.wMm     = parseFloat(el.dataset.wMm);
+      this._drag.hMm     = parseFloat(el.dataset.hMm);
+    } else { // door
+      this._drag.origPosMm = parseFloat(el.dataset.posMm);
+      this._drag.wall      = el.dataset.wall;
+      this._drag.wMm       = parseFloat(el.dataset.wMm);
+    }
+
+    this._boundOnPtrMove = this._onEditPtrMove.bind(this);
+    this._boundOnPtrUp   = this._onEditPtrUp.bind(this);
+    window.addEventListener("pointermove", this._boundOnPtrMove);
+    window.addEventListener("pointerup",   this._boundOnPtrUp);
+  }
+
+  _onEditPtrMove(e) {
+    if (!this._drag) return;
+    e.preventDefault();
+
+    const pt = this._svgCoords(e);
+    const d  = this._drag;
+    const { fp, scX, scY } = d.sc;
+    const dx = pt.x - d.startX;
+    const dy = pt.y - d.startY;
+
+    if (d.type === "furniture") {
+      const origFx = fp.x + d.origXMm * scX;
+      const origFy = fp.y + d.origYMm * scY;
+      const wPx    = d.wMm * scX;
+      const hPx    = d.hMm * scY;
+
+      const newFx = Math.max(fp.x, Math.min(fp.x + fp.width  - wPx, origFx + dx));
+      const newFy = Math.max(fp.y, Math.min(fp.y + fp.height - hPx, origFy + dy));
+
+      const rect = d.el.querySelector("rect");
+      const text = d.el.querySelector("text");
+      rect.setAttribute("x", newFx);
+      rect.setAttribute("y", newFy);
+      if (text) {
+        text.setAttribute("x", newFx + wPx / 2);
+        text.setAttribute("y", newFy + hPx / 2);
+      }
+      d.curFx = newFx;
+      d.curFy = newFy;
+
+    } else { // door
+      const wall       = d.wall;
+      const origPosMm  = d.origPosMm;
+      const wMm        = d.wMm;
+
+      let newPosMm;
+      if (wall === "top" || wall === "bottom") {
+        const origPosPx = fp.x + origPosMm * scX;
+        const maxPosPx  = fp.x + fp.width - wMm * scX;
+        const newPosPx  = Math.max(fp.x, Math.min(maxPosPx, origPosPx + dx));
+        newPosMm = Math.round((newPosPx - fp.x) / scX);
+      } else {
+        const origPosPx = fp.y + origPosMm * scY;
+        const maxPosPx  = fp.y + fp.height - wMm * scY;
+        const newPosPx  = Math.max(fp.y, Math.min(maxPosPx, origPosPx + dy));
+        newPosMm = Math.round((newPosPx - fp.y) / scY);
+      }
+
+      this._updateDoorElements(d.el, fp, scX, scY, {
+        wall,
+        position_mm:  newPosMm,
+        width_mm:     wMm,
+        connects_to:  d.el.dataset.connectsTo || "",
+      });
+      d.curPosMm = newPosMm;
+    }
+
+    d.dirty = true;
+  }
+
+  async _onEditPtrUp(e) {
+    window.removeEventListener("pointermove", this._boundOnPtrMove);
+    window.removeEventListener("pointerup",   this._boundOnPtrUp);
+
+    const d = this._drag;
+    this._drag = null;
+    if (!d || !d.dirty) return;
+
+    if (d.type === "furniture") {
+      const { fp, scX, scY } = d.sc;
+      const newXMm = Math.round((d.curFx - fp.x) / scX);
+      const newYMm = Math.round((d.curFy - fp.y) / scY);
+      d.el.dataset.xMm = newXMm;
+      d.el.dataset.yMm = newYMm;
+
+      try {
+        await apiFetch(`/api/calibrate/room/${d.roomId}/furniture/${d.id}`, {
+          method:  "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ x_mm: newXMm, y_mm: newYMm }),
+        });
+        _fpToast("✓ Möbel gespeichert");
+      } catch (err) {
+        console.error("Fehler beim Speichern des Möbelstücks:", err);
+        _fpToast("⚠ Speichern fehlgeschlagen", true);
+      }
+
+    } else { // door
+      d.el.dataset.posMm = d.curPosMm;
+
+      try {
+        await apiFetch(`/api/calibrate/room/${d.roomId}/door/${d.id}`, {
+          method:  "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ position_mm: d.curPosMm }),
+        });
+        _fpToast("✓ Tür gespeichert");
+      } catch (err) {
+        console.error("Fehler beim Speichern der Tür:", err);
+        _fpToast("⚠ Speichern fehlgeschlagen", true);
+      }
+    }
+  }
+
+  // Türkinder (gap, symbol, label) in-place neu aufbauen
+  _updateDoorElements(doorG, fp, scX, scY, door) {
+    while (doorG.firstChild) doorG.removeChild(doorG.firstChild);
+
+    const GAP = 3;
+    const pos = door.position_mm;
+    const w   = door.width_mm;
+    let dx, dy, dw, dh, lx, ly;
+
+    switch (door.wall) {
+      case "top":
+        dx = fp.x + pos * scX;  dy = fp.y - GAP;
+        dw = w * scX;           dh = GAP * 2 + 1;
+        lx = dx + dw / 2;       ly = fp.y + 9;
+        break;
+      case "bottom":
+        dx = fp.x + pos * scX;  dy = fp.y + fp.height - GAP;
+        dw = w * scX;           dh = GAP * 2 + 1;
+        lx = dx + dw / 2;       ly = fp.y + fp.height - 3;
+        break;
+      case "left":
+        dx = fp.x - GAP;        dy = fp.y + pos * scY;
+        dw = GAP * 2 + 1;       dh = w * scY;
+        lx = fp.x + 8;          ly = dy + dh / 2;
+        break;
+      case "right":
+        dx = fp.x + fp.width - GAP; dy = fp.y + pos * scY;
+        dw = GAP * 2 + 1;           dh = w * scY;
+        lx = fp.x + fp.width - 8;   ly = dy + dh / 2;
+        break;
+      default: return;
+    }
+
+    doorG.appendChild(this._el("rect", { x: dx, y: dy, width: dw, height: dh, class: "door-gap" }));
+    doorG.appendChild(this._el("rect", {
+      x: dx + 0.5, y: dy + 0.5,
+      width: Math.max(dw - 1, 1), height: Math.max(dh - 1, 1),
+      class: "door-symbol",
+    }));
+
+    const labelLen = (door.wall === "top" || door.wall === "bottom") ? dw : dh;
+    if (labelLen > 18) {
+      const lt = this._el("text", {
+        x: lx, y: ly, class: "door-label",
+        "text-anchor": "middle", "dominant-baseline": "middle",
+      });
+      lt.textContent = door.connects_to ? `→ ${door.connects_to}` : "Tür";
+      doorG.appendChild(lt);
+    }
+  }
+
+  // ----------------------------------------------------------------
   // SVG aufbauen
   // ----------------------------------------------------------------
 
@@ -172,8 +405,13 @@ class Floorplan {
   }
 
   _buildRoom(svg, room) {
-    const fp = room.floorplan;
-    const g  = this._el("g", { class: "room-group" });
+    const fp  = room.floorplan;
+    const g   = this._el("g", { class: "room-group" });
+    const scX = fp.width  / room.width_mm;
+    const scY = fp.height / room.height_mm;
+
+    // Skalierungsfaktoren für Edit-Modus merken
+    this._roomScales[room.id] = { fp, scX, scY, room };
 
     // Haupt-Rechteck
     const rect = this._el("rect", {
@@ -184,21 +422,32 @@ class Floorplan {
     g.appendChild(rect);
     this._roomRects[room.id] = rect;
 
-    const scX = fp.width  / room.width_mm;
-    const scY = fp.height / room.height_mm;
-
-    // Türen als Lücken in den Wänden
+    // Türen als Lücken in den Wänden (jetzt als <g> mit data-attrs)
     for (const door of (room.doors || [])) {
-      this._buildDoor(g, fp, scX, scY, door);
+      const doorG = this._buildDoor(fp, scX, scY, door, room.id);
+      g.appendChild(doorG);
     }
 
-    // Möbel (unterhalb Zonen, damit Zonen-Labels sichtbar bleiben)
+    // Möbel (als <g> mit data-attrs für den Edit-Modus)
     for (const furn of (room.furniture || [])) {
       const fx = fp.x + furn.x_mm * scX;
       const fy = fp.y + furn.y_mm * scY;
       const fw = furn.width_mm  * scX;
       const fh = furn.height_mm * scY;
-      g.appendChild(this._el("rect", {
+
+      const furnAttrs = {
+        class: "fp-draggable",
+        "data-drag":     "furniture",
+        "data-room-id":  room.id,
+        "data-x-mm":     furn.x_mm,
+        "data-y-mm":     furn.y_mm,
+        "data-w-mm":     furn.width_mm,
+        "data-h-mm":     furn.height_mm,
+      };
+      if (furn.id) furnAttrs["data-id"] = furn.id;
+
+      const furnG = this._el("g", furnAttrs);
+      furnG.appendChild(this._el("rect", {
         x: fx, y: fy, width: fw, height: fh,
         class: `furniture-rect furniture-${furn.type || "other"}`,
         rx: 2,
@@ -211,8 +460,9 @@ class Floorplan {
           "dominant-baseline": "middle",
         });
         ft.textContent = furn.name;
-        g.appendChild(ft);
+        furnG.appendChild(ft);
       }
+      g.appendChild(furnG);
     }
 
     // Zonen
@@ -253,62 +503,21 @@ class Floorplan {
     svg.appendChild(g);
   }
 
-  _buildDoor(g, fp, scX, scY, door) {
-    // Tür als Lücke in der Wand + kleines Symbol + Label
-    const GAP = 3;   // px – Breite der "Wand" zum Überdecken
-    const pos = door.position_mm;
-    const w   = door.width_mm;
+  _buildDoor(fp, scX, scY, door, roomId) {
+    const doorAttrs = {
+      class: "fp-draggable",
+      "data-drag":        "door",
+      "data-room-id":     roomId,
+      "data-wall":        door.wall,
+      "data-pos-mm":      door.position_mm,
+      "data-w-mm":        door.width_mm,
+      "data-connects-to": door.connects_to || "",
+    };
+    if (door.id) doorAttrs["data-id"] = door.id;
 
-    let dx, dy, dw, dh, lx, ly;
-    switch (door.wall) {
-      case "top":
-        dx = fp.x + pos * scX;  dy = fp.y - GAP;
-        dw = w * scX;           dh = GAP * 2 + 1;
-        lx = dx + dw / 2;       ly = fp.y + 9;
-        break;
-      case "bottom":
-        dx = fp.x + pos * scX;  dy = fp.y + fp.height - GAP;
-        dw = w * scX;           dh = GAP * 2 + 1;
-        lx = dx + dw / 2;       ly = fp.y + fp.height - 3;
-        break;
-      case "left":
-        dx = fp.x - GAP;        dy = fp.y + pos * scY;
-        dw = GAP * 2 + 1;       dh = w * scY;
-        lx = fp.x + 8;          ly = dy + dh / 2;
-        break;
-      case "right":
-        dx = fp.x + fp.width - GAP; dy = fp.y + pos * scY;
-        dw = GAP * 2 + 1;           dh = w * scY;
-        lx = fp.x + fp.width - 8;   ly = dy + dh / 2;
-        break;
-      default: return;
-    }
-
-    // Lücke (überdeckt die Wand mit Hintergrundfarbe)
-    g.appendChild(this._el("rect", {
-      x: dx, y: dy, width: dw, height: dh,
-      class: "door-gap",
-    }));
-
-    // Türsymbol (dünner Bogen / Linie)
-    g.appendChild(this._el("rect", {
-      x: dx + 0.5, y: dy + 0.5,
-      width: Math.max(dw - 1, 1), height: Math.max(dh - 1, 1),
-      class: "door-symbol",
-    }));
-
-    // Label wenn genug Platz
-    const labelLen = (door.wall === "top" || door.wall === "bottom") ? dw : dh;
-    if (labelLen > 18) {
-      const lt = this._el("text", {
-        x: lx, y: ly,
-        class: "door-label",
-        "text-anchor": "middle",
-        "dominant-baseline": "middle",
-      });
-      lt.textContent = door.connects_to ? `→ ${door.connects_to}` : "Tür";
-      g.appendChild(lt);
-    }
+    const doorG = this._el("g", doorAttrs);
+    this._updateDoorElements(doorG, fp, scX, scY, door);
+    return doorG;
   }
 
   _buildSensor(svg, sensor) {
@@ -412,4 +621,23 @@ class Floorplan {
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
     return el;
   }
+}
+
+// ----------------------------------------------------------------
+// Toast-Benachrichtigung (modul-global, ohne Framework)
+// ----------------------------------------------------------------
+function _fpToast(msg, isError = false) {
+  let toast = document.getElementById("fp-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "fp-toast";
+    toast.className = "fp-toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.className   = "fp-toast fp-toast--visible" + (isError ? " fp-toast--error" : "");
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => {
+    toast.classList.remove("fp-toast--visible");
+  }, 2000);
 }
