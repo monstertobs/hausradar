@@ -120,15 +120,46 @@ Globale Variable `_API_KEY` (Modulebene) wird im Lifespan gesetzt und in Tests d
 - Session-Tracking: `_room_sessions` (Modulebene) hält offene `motion_sessions`; wird beim Server-Start automatisch bereinigt
 - Für Tests: `db._reset_for_tests()` leert Rate-Limiter und Session-Cache; `db._clear_tables_for_tests(path)` leert DB-Inhalte
 
+### Personen-Tracker (`tracker.py`)
+
+Sitzt zwischen `coordinate_transform` und `live_state`:
+
+1. `mqtt_service._process()` baut `enriched`-Liste aus Koordinatenumrechnung
+2. `tracker.get_tracker(sensor_id).update(enriched)` → fügt `track_id`, `color_idx`, `ghost` hinzu
+3. `ghost=True` bedeutet: kein aktuelles Messsignal, letzte bekannte Position wird für max. `MAX_MISS_FRAMES=4` Frames gehalten
+
+Algorithmus: Greedy Nearest-Neighbour mit `MAX_ASSIGN_DIST_MM=800`. Jeder Track bekommt einen Farb-Index (0=blau, 1=orange, 2=grün), der bis zur Track-Löschung stabil bleibt.
+
+### Versionsmanagement
+
+- `VERSION` (Repo-Root) – einzige Quelle der Versionsnummer
+- `server/app/version.py` liest die Datei beim Import → `__version__`
+- FastAPI-App-Version, `/api/health` und die Version-Badge in der Weboberfläche nutzen alle `__version__`
+- Releases: `git tag vX.Y.Z && git push origin vX.Y.Z && gh release create vX.Y.Z`
+
+### Web-Update-Manager (`api/update.py`)
+
+Ablauf:
+1. `POST /api/update/start` startet `_worker()` in Daemon-Thread
+2. `GET /api/update/stream` streamt SSE-Log-Einträge (polling alle 0,35 s)
+3. Worker: git fetch → git reset --hard origin/main → config-Restore → pip install → import-Check → `sudo systemctl restart hausradar`
+4. `sudo systemctl restart` killt den Prozess; Browser erkennt Verbindungsabbruch und pollt `/api/health` bis der neue Prozess antwortet
+5. Rollback bei Fehler in Schritt pip/import: `git reset --hard <prev_commit>` + config-Restore
+
+sudoers-Eintrag nötig: `pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hausradar`
+
 ### Frontend (`web/`)
 
 Vanilla JS, kein Framework. Vier Seiten:
-- `index.html` + `app.js` + `floorplan.js` – Live-Grundriss mit SVG, WebSocket-Verbindung
+- `index.html` + `app.js` + `floorplan.js` – Live-Grundriss mit SVG, WebSocket, Personen-Tracking
 - `room.html` – Einzelraum-Ansicht
 - `profiles.html` + `charts.js` – Analyse-Diagramme (Chart.js aus CDN)
-- `settings.html` + `settings.js` – Konfigurationsansicht
+- `settings.html` + `settings.js` – Konfiguration, Sensor-Status, Sensor-Identifikation, Software-Update
+- `calibrate.html` + `calibrate.js` – Kalibrierung, Raumverwaltung, Auto-Layout
 
 `api.js` enthält `esc()` (HTML-Escaping) – **alle** von der API kommenden Strings in `innerHTML`-Templates müssen durch `esc()`.
+
+`api.js` injiziert beim Laden jeder Seite eine Version-Badge in `.logo` via `GET /api/health`.
 
 ### API-Endpunkte
 
@@ -136,13 +167,27 @@ Vanilla JS, kein Framework. Vier Seiten:
 |---|---|---|
 | `/api/rooms` | `rooms.router` | `api/rooms.py` |
 | `/api/sensors` | `sensors.router` | `api/sensors.py` |
+| `/api/calibrate` | `calibrate.router` | `api/calibrate.py` |
+| `/api/update` | `update.router` | `api/update.py` |
 | `/api/simulate/motion` | `motion.router` | `api/motion.py` |
 | `/api/history` | `history.router` | `api/history.py` |
 | `/api/profile` | `profile.router` | `api/profile.py` |
 | `/api/health` | inline in `main.py` | — |
+| `/api/live` | inline in `main.py` | — |
 | `/ws/live` | WebSocket in `main.py` | — |
 
 `POST /api/simulate/motion` gibt 404 zurück wenn `settings.environment == "production"`.
+
+Neue CRUD-Endpunkte:
+- `PATCH /api/rooms/{id}` – Raum umbenennen
+- `POST /api/rooms` – neuen Raum anlegen
+- `DELETE /api/rooms/{id}` – Raum + Sensoren löschen
+- `PATCH /api/sensors/{id}` – Sensor bearbeiten
+- `POST /api/sensors` – neuen Sensor anlegen
+- `DELETE /api/sensors/{id}` – Sensor löschen
+- `PATCH /api/calibrate/room/{id}` – Raummaße bearbeiten
+- `PATCH /api/calibrate/sensor/{id}` – Sensorwerte bearbeiten
+- `POST /api/calibrate/layout` – Auto-Layout (BFS)
 
 ### Deployment
 

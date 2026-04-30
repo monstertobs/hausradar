@@ -140,36 +140,18 @@ ok "Mosquitto gestartet"
 # ---------------------------------------------------------------------------
 step "5/6  systemd-Service installieren"
 
-cat > "$SERVICE_FILE" << EOF
-[Unit]
-Description=HausRadar Backend
-Documentation=file://${PROJECT_DIR}/docs/setup-pi-zero-2.md
-After=network-online.target mosquitto.service
-Wants=network-online.target
+# Service-Unit aus Template erzeugen (deploy/hausradar.service als Quelle)
+TEMPLATE="$PROJECT_DIR/deploy/hausradar.service"
+if [[ ! -f "$TEMPLATE" ]]; then
+    fail "Service-Template nicht gefunden: $TEMPLATE"
+fi
 
-[Service]
-Type=simple
-User=${INSTALL_USER}
-WorkingDirectory=${PROJECT_DIR}
-ExecStart=${VENV_DIR}/bin/uvicorn app.main:app \\
-    --app-dir ${PROJECT_DIR}/server \\
-    --host 0.0.0.0 \\
-    --port 8000 \\
-    --workers 1 \\
-    --log-level warning
-Restart=always
-RestartSec=10
-StandardOutput=append:${LOG_DIR}/hausradar.log
-StandardError=append:${LOG_DIR}/hausradar.log
+sed \
+    -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
+    -e "s|__USER__|${INSTALL_USER}|g" \
+    "$TEMPLATE" > "$SERVICE_FILE"
 
-# Speicher-Limit für Pi Zero 2 W (512 MB RAM)
-MemoryMax=256M
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-ok "Service-Datei geschrieben: $SERVICE_FILE"
+ok "Service-Datei geschrieben: $SERVICE_FILE (aus Template)"
 
 # ---------------------------------------------------------------------------
 # sudoers: Web-Update-Funktion darf den Dienst ohne Passwort neu starten

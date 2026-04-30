@@ -3,7 +3,6 @@
 # =============================================================================
 
 # --- Secrets (NIEMALS committen) -------------------------------------------
-firmware/esp32-ld2450-mqtt/include/config.h
 firmware/esp32-ld2450-mqtt/include/secrets.h
 
 # --- Datenbank und Backups ---------------------------------------------------

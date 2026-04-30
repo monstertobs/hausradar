@@ -2,6 +2,56 @@
 
 > **Hardware-Aufbau und ausführliche Kalibrierung:** [docs/hardware-setup.md](hardware-setup.md)
 
+## Schnell-Diagnose
+
+```bash
+# System-Status auf einen Blick
+curl -s http://localhost:8000/api/health | python3 -m json.tool
+
+# Live-Zustand aller Sensoren
+curl -s http://localhost:8000/api/live | python3 -m json.tool
+
+# Backend-Log (letzte 30 Zeilen)
+journalctl -u hausradar -n 30
+
+# MQTT live mithören
+mosquitto_sub -h localhost -t "hausradar/#" -v
+```
+
+---
+
+## Software-Update schlägt fehl
+
+**Symptom:** Web-Update zeigt Fehler, Service startet danach nicht.
+
+Das Update-System macht automatisch einen Rollback:
+1. `git reset --hard <alter Commit>` wird ausgeführt
+2. Konfigurationsdateien aus dem Backup wiederhergestellt
+
+**Manueller Rollback:**
+```bash
+cd ~/hausradar
+git log --oneline -5                       # letzten funktionierenden Commit suchen
+git reset --hard <commit-hash>
+sudo systemctl restart hausradar
+```
+
+**sudoers fehlt (Neustart nicht möglich):**
+```bash
+# Prüfen:
+sudo -l | grep hausradar
+# Falls fehlend:
+SYSTEMCTL=$(which systemctl)
+echo "pi ALL=(ALL) NOPASSWD: ${SYSTEMCTL} restart hausradar" | sudo tee /etc/sudoers.d/hausradar
+sudo chmod 440 /etc/sudoers.d/hausradar
+```
+
+**Update hängt / Stream bricht ab:**
+- Browser-Tab schließen und `/api/update/stream` neu laden liefert den aktuellen Status
+- Nach Service-Neustart erscheint eine automatische Reload-Meldung
+
+---
+
 ## Backend startet nicht
 
 **Symptom:** `systemctl status hausradar` zeigt `failed` oder `active (exited)`.

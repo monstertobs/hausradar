@@ -39,7 +39,8 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 # Schreibrechte nur auf Daten- und Log-Verzeichnisse einschränken
-ReadWritePaths=/var/log/hausradar __PROJECT_DIR__/data
+# Schreibrechte auf Daten-, Log- und Projektverzeichnis (Update-Feature benötigt .git + config/)
+ReadWritePaths=/var/log/hausradar __PROJECT_DIR__/data __PROJECT_DIR__/config __PROJECT_DIR__/.git __PROJECT_DIR__/server/.venv /tmp
 
 [Install]
 WantedBy=multi-user.target
