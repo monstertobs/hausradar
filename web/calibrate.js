@@ -1003,6 +1003,28 @@ function renderOverview(rooms) {
         addDoorToRoom(btnAddDoor, room.id, rooms);
       });
     }
+    // Alle Zonen löschen
+    const btnClearZones = $(`btn-clear-zones-${room.id}`);
+    if (btnClearZones) {
+      btnClearZones.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        confirmClearZones(room.id, room.name);
+      });
+    }
+    // Einzelne Zonen löschen
+    const standaloneZones = (room.zones || []).filter(z => {
+      const furnIds = new Set((room.furniture || []).map(f => f.id));
+      return !furnIds.has(z.id);
+    });
+    for (const z of standaloneZones) {
+      const btnDelZone = $(`btn-del-zone-${room.id}-${z.id}`);
+      if (btnDelZone) {
+        btnDelZone.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          confirmDeleteZone(room.id, z.id, z.name);
+        });
+      }
+    }
     // Neue Kalibrierung für diesen Raum starten
     const btnCal = $(`btn-calibrate-room-${room.id}`);
     if (btnCal) {
@@ -1138,6 +1160,9 @@ function overviewRoomHtml(room) {
         </div>
         ${overviewDoorsHtml(room)}
       </div>
+
+      <!-- Zonen -->
+      ${overviewZonesHtml(room)}
     </div>`;
 }
 
@@ -1175,10 +1200,69 @@ function overviewDoorsHtml(room) {
     </div>`;
 }
 
+function overviewZonesHtml(room) {
+  const zones = (room.zones || []).filter(z => {
+    // Nur Zonen zeigen die NICHT aus einem Möbelstück stammen
+    // (Möbel-Zonen haben dieselbe id wie das Möbelstück)
+    const furnIds = new Set((room.furniture || []).map(f => f.id));
+    return !furnIds.has(z.id);
+  });
+  if (!zones.length) return "";
+
+  return `
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">
+          Zonen (${zones.length})
+        </div>
+        <button class="btn-secondary"
+          style="font-size:.72rem;padding:2px 10px;color:var(--red);border-color:var(--red)"
+          id="btn-clear-zones-${esc(room.id)}">🗑 Alle löschen</button>
+      </div>
+      <div class="furniture-list" style="margin-top:6px">
+        ${zones.map(z => `
+          <div class="furniture-item">
+            <div class="furniture-item-info">
+              <div class="furniture-item-name">${esc(z.name)}</div>
+              <div class="furniture-item-meta">
+                ${(z.width_mm/1000).toFixed(2)} m × ${(z.height_mm/1000).toFixed(2)} m
+                · Position (${(z.x_mm/1000).toFixed(2)} m, ${(z.y_mm/1000).toFixed(2)} m)
+              </div>
+            </div>
+            <button class="btn-secondary"
+              style="font-size:.75rem;padding:3px 10px;color:var(--red);border-color:var(--red);flex-shrink:0"
+              id="btn-del-zone-${esc(room.id)}-${esc(z.id)}">🗑</button>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
 async function confirmDeleteDoor(roomId, doorId, doorName) {
   if (!confirm(`Tür "${doorName}" wirklich löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;
   try {
     await apiFetch(`/api/calibrate/room/${roomId}/door/${doorId}`, { method: "DELETE" });
+    showRestartHint();
+    loadOverview();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+async function confirmDeleteZone(roomId, zoneId, zoneName) {
+  if (!confirm(`Zone "${zoneName}" wirklich löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;
+  try {
+    await apiFetch(`/api/calibrate/room/${roomId}/zone/${zoneId}`, { method: "DELETE" });
+    showRestartHint();
+    loadOverview();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+async function confirmClearZones(roomId, roomName) {
+  if (!confirm(`Alle Zonen aus "${roomName}" löschen?\n\nDer Dienst muss danach neu gestartet werden.`)) return;
+  try {
+    await apiFetch(`/api/calibrate/room/${roomId}/zones`, { method: "DELETE" });
     showRestartHint();
     loadOverview();
   } catch (e) {

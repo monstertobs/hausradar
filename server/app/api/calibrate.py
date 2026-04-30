@@ -10,6 +10,8 @@ Endpunkte:
   DELETE /api/calibrate/room/{room_id}/furniture/{fid}         → Einzelnes Möbelstück löschen
   DELETE /api/calibrate/room/{room_id}/furniture               → Alle Möbel eines Raums löschen
   DELETE /api/calibrate/room/{room_id}/door/{did}              → Tür löschen
+  DELETE /api/calibrate/room/{room_id}/zone/{zone_id}          → Einzelne Zone löschen
+  DELETE /api/calibrate/room/{room_id}/zones                   → Alle Zonen eines Raums löschen
   DELETE /api/calibrate/room/{room_id}/reset                   → Raum-Kalibrierung zurücksetzen
 
   POST   /api/calibrate/session                                → Session anlegen
@@ -654,6 +656,48 @@ def delete_all_furniture(room_id: str):
         "restart_required": True,
         "restart_hint":     "sudo systemctl restart hausradar",
     }
+
+
+@router.delete("/room/{room_id}/zone/{zone_id}", status_code=200)
+def delete_zone(room_id: str, zone_id: str):
+    """Löscht eine einzelne Zone aus rooms.json."""
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    before = len(room.get("zones", []))
+    room["zones"] = [z for z in room.get("zones", []) if z.get("id") != zone_id]
+
+    if len(room["zones"]) == before:
+        raise HTTPException(status_code=404,
+                            detail=f"Zone '{zone_id}' nicht in Raum '{room_id}'")
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Zone '%s' aus Raum '%s' gelöscht", zone_id, room_id)
+    return {"deleted": zone_id, "restart_required": True,
+            "restart_hint": "sudo systemctl restart hausradar"}
+
+
+@router.delete("/room/{room_id}/zones", status_code=200)
+def delete_all_zones(room_id: str):
+    """Löscht alle Zonen eines Raums (unabhängig davon, ob sie aus Möbeln stammen)."""
+    rooms_path = CONFIG_DIR / "rooms.json"
+    rooms = _load_json_file(rooms_path)
+
+    room = next((r for r in rooms if r["id"] == room_id), None)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
+
+    count = len(room.get("zones", []))
+    room["zones"] = []
+
+    _write_json_file(rooms_path, rooms)
+    logger.info("Alle %d Zone(n) aus Raum '%s' gelöscht", count, room_id)
+    return {"deleted_count": count, "restart_required": True,
+            "restart_hint": "sudo systemctl restart hausradar"}
 
 
 # ---------------------------------------------------------------------------
