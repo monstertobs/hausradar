@@ -153,6 +153,14 @@ class Floorplan {
   }
 
   _onEditPtrDown(e) {
+    // Dreh-Handle hat Vorrang vor Drag
+    if (e.target.dataset.action === "rotate") {
+      e.preventDefault();
+      const furnG = e.target.closest("[data-drag='furniture']");
+      if (furnG && furnG.dataset.id) this._rotateFurniture(furnG, 90);
+      return;
+    }
+
     const el = e.target.closest("[data-drag]");
     if (!el) return;
 
@@ -215,6 +223,17 @@ class Floorplan {
         text.setAttribute("x", newFx + wPx / 2);
         text.setAttribute("y", newFy + hPx / 2);
       }
+      // Rotations-Transform mitführen (Zentrum folgt dem Möbel)
+      const rotDeg = parseFloat(d.el.dataset.rotDeg) || 0;
+      if (rotDeg) {
+        d.el.setAttribute("transform",
+          `rotate(${rotDeg}, ${newFx + wPx / 2}, ${newFy + hPx / 2})`);
+      }
+      // Dreh-Handle-Position aktualisieren
+      const rotHandle = d.el.querySelector("[data-action='rotate']");
+      const rotIcon   = d.el.querySelector(".fp-rot-handle-icon");
+      if (rotHandle) { rotHandle.setAttribute("cx", newFx + wPx); rotHandle.setAttribute("cy", newFy); }
+      if (rotIcon)   { rotIcon.setAttribute("x",   newFx + wPx); rotIcon.setAttribute("y",   newFy + 0.5); }
       d.curFx = newFx;
       d.curFy = newFy;
 
@@ -260,8 +279,10 @@ class Floorplan {
       const { fp, scX, scY } = d.sc;
       const newXMm = Math.round((d.curFx - fp.x) / scX);
       const newYMm = Math.round((d.curFy - fp.y) / scY);
-      d.el.dataset.xMm = newXMm;
-      d.el.dataset.yMm = newYMm;
+      d.el.dataset.xMm  = newXMm;
+      d.el.dataset.yMm  = newYMm;
+      d.el.dataset.cxSvg = d.curFx + d.wMm * d.sc.scX / 2;
+      d.el.dataset.cySvg = d.curFy + d.hMm * d.sc.scY / 2;
 
       try {
         await apiFetch(`/api/calibrate/room/${d.roomId}/furniture/${d.id}`, {
@@ -289,6 +310,34 @@ class Floorplan {
         console.error("Fehler beim Speichern der Tür:", err);
         _fpToast("⚠ Speichern fehlgeschlagen", true);
       }
+    }
+  }
+
+  // Möbelstück um deltaDeg Grad im Uhrzeigersinn drehen und speichern
+  async _rotateFurniture(furnG, deltaDeg) {
+    const roomId = furnG.dataset.roomId;
+    const curr   = parseFloat(furnG.dataset.rotDeg) || 0;
+    const newRot = ((curr + deltaDeg) % 360 + 360) % 360;
+    const cx     = parseFloat(furnG.dataset.cxSvg);
+    const cy     = parseFloat(furnG.dataset.cySvg);
+
+    furnG.dataset.rotDeg = newRot;
+    if (newRot === 0) {
+      furnG.removeAttribute("transform");
+    } else {
+      furnG.setAttribute("transform", `rotate(${newRot}, ${cx}, ${cy})`);
+    }
+
+    try {
+      await apiFetch(`/api/calibrate/room/${roomId}/furniture/${furnG.dataset.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ rotation_deg: newRot }),
+      });
+      _fpToast(`↻ ${newRot}° gespeichert`);
+    } catch (err) {
+      console.error("Fehler beim Drehen:", err);
+      _fpToast("⚠ Speichern fehlgeschlagen", true);
     }
   }
 
@@ -430,21 +479,28 @@ class Floorplan {
 
     // Möbel (als <g> mit data-attrs für den Edit-Modus)
     for (const furn of (room.furniture || [])) {
-      const fx = fp.x + furn.x_mm * scX;
-      const fy = fp.y + furn.y_mm * scY;
-      const fw = furn.width_mm  * scX;
-      const fh = furn.height_mm * scY;
+      const fx     = fp.x + furn.x_mm * scX;
+      const fy     = fp.y + furn.y_mm * scY;
+      const fw     = furn.width_mm  * scX;
+      const fh     = furn.height_mm * scY;
+      const rotDeg = furn.rotation_deg || 0;
+      const cx_svg = fx + fw / 2;
+      const cy_svg = fy + fh / 2;
 
       const furnAttrs = {
-        class: "fp-draggable",
+        class:           "fp-draggable",
         "data-drag":     "furniture",
         "data-room-id":  room.id,
         "data-x-mm":     furn.x_mm,
         "data-y-mm":     furn.y_mm,
         "data-w-mm":     furn.width_mm,
         "data-h-mm":     furn.height_mm,
+        "data-rot-deg":  rotDeg,
+        "data-cx-svg":   cx_svg,
+        "data-cy-svg":   cy_svg,
       };
       if (furn.id) furnAttrs["data-id"] = furn.id;
+      if (rotDeg)  furnAttrs["transform"] = `rotate(${rotDeg}, ${cx_svg}, ${cy_svg})`;
 
       const furnG = this._el("g", furnAttrs);
       furnG.appendChild(this._el("rect", {
@@ -454,7 +510,7 @@ class Floorplan {
       }));
       if (fw > 20 && fh > 10) {
         const ft = this._el("text", {
-          x: fx + fw / 2, y: fy + fh / 2,
+          x: cx_svg, y: cy_svg,
           class: "furniture-label",
           "text-anchor": "middle",
           "dominant-baseline": "middle",
@@ -462,6 +518,26 @@ class Floorplan {
         ft.textContent = furn.name;
         furnG.appendChild(ft);
       }
+
+      // Dreh-Handle (nur im Edit-Modus sichtbar, via CSS)
+      if (furn.id) {
+        furnG.appendChild(this._el("circle", {
+          cx: fx + fw, cy: fy, r: 7,
+          class: "fp-rot-handle",
+          "data-action": "rotate",
+        }));
+        const rTxt = this._el("text", {
+          x: fx + fw, y: fy + 0.5,
+          class: "fp-rot-handle-icon",
+          "text-anchor": "middle",
+          "dominant-baseline": "middle",
+          "font-size": 8,
+          "pointer-events": "none",
+        });
+        rTxt.textContent = "↻";
+        furnG.appendChild(rTxt);
+      }
+
       g.appendChild(furnG);
     }
 

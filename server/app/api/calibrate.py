@@ -76,12 +76,13 @@ class PatchSensorRequest(BaseModel):
 
 
 class PatchFurnitureRequest(BaseModel):
-    name:      Optional[str]   = None
-    type:      Optional[str]   = None
-    x_mm:      Optional[int]   = None
-    y_mm:      Optional[int]   = None
-    width_mm:  Optional[int]   = None
-    height_mm: Optional[int]   = None
+    name:         Optional[str]   = None
+    type:         Optional[str]   = None
+    x_mm:         Optional[int]   = None
+    y_mm:         Optional[int]   = None
+    width_mm:     Optional[int]   = None
+    height_mm:    Optional[int]   = None
+    rotation_deg: Optional[float] = None
 
 
 class PatchDoorRequest(BaseModel):
@@ -941,6 +942,8 @@ def patch_furniture(room_id: str, fid: str, body: PatchFurnitureRequest):
             target["width_mm"] = body.width_mm;  updated["width_mm"] = body.width_mm
         if body.height_mm is not None:
             target["height_mm"] = body.height_mm; updated["height_mm"] = body.height_mm
+        if body.rotation_deg is not None and target is furn:
+            target["rotation_deg"] = body.rotation_deg; updated["rotation_deg"] = body.rotation_deg
 
     if not updated:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")

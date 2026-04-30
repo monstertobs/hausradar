@@ -457,6 +457,30 @@ main {
   stroke: var(--yellow);
 }
 
+/* Rotations-Handle (Ecke oben rechts des Möbelstücks, nur im Edit-Modus) */
+.fp-rot-handle {
+  display: none;
+  fill:         var(--accent);
+  stroke:       #fff;
+  stroke-width: 1;
+  cursor:       pointer;
+  opacity:      0.85;
+}
+.fp-rot-handle-icon {
+  display: none;
+  fill:     #fff;
+  font-weight: bold;
+  user-select: none;
+}
+.fp-edit-mode .fp-rot-handle,
+.fp-edit-mode .fp-rot-handle-icon {
+  display: block;
+}
+.fp-edit-mode .fp-rot-handle:hover {
+  fill:    var(--yellow);
+  opacity: 1;
+}
+
 /* Edit-Button: aktiver Zustand */
 .btn--edit-active {
   border-color: var(--green);
