@@ -806,15 +806,16 @@ function renderSaveStep(body) {
             ? `<p>${res.furniture_saved} Möbelstück(e) gespeichert.</p>` : ""}
           ${res.doors_saved > 0
             ? `<p>${res.doors_saved} Tür(en) gespeichert.</p>` : ""}
-          <p style="margin-top:12px">
-            ⚠ <strong>Backend neu starten</strong> damit die Änderungen wirken:<br>
-            <code>${esc(res.restart_hint)}</code>
+          <p style="margin-top:12px;color:var(--muted)">
+            ✅ Konfiguration wurde automatisch neu geladen.
           </p>
         </div>`;
 
       // Session-ID zurücksetzen (ist serverseitig gelöscht)
       STATE.sessionId = null;
       $("btn-save").textContent = "✓ Gespeichert";
+      // Konfiguration live neu laden (kein Neustart nötig)
+      apiFetch("/api/config/reload", { method: "POST" }).catch(() => {});
       // Übersicht aktualisieren
       document.dispatchEvent(new Event("calibration-saved"));
     } catch (e) {
@@ -1877,8 +1878,13 @@ async function addDoorToRoom(anchorEl, roomId, allRooms) {
   });
 }
 
-function showRestartHint() {
-  // Kurze Einblendung oben auf der Seite
+/**
+ * Konfiguration live neu laden und kurze Bestätigungsmeldung anzeigen.
+ * Ersetzt den alten „Neustart erforderlich"-Hinweis – für alle
+ * Kalibrierungsänderungen (Möbel, Zonen, Türen, Layout) ist kein
+ * Dienstneustart mehr nötig.
+ */
+async function showRestartHint() {
   let hint = document.getElementById("restart-hint-banner");
   if (!hint) {
     hint = document.createElement("div");
@@ -1887,13 +1893,24 @@ function showRestartHint() {
       position:fixed;top:60px;left:50%;transform:translateX(-50%);
       background:#052e16;border:1px solid #22c55e;border-radius:8px;
       padding:10px 20px;font-size:.875rem;z-index:9999;
-      box-shadow:0 4px 20px rgba(0,0,0,.5)`;
+      box-shadow:0 4px 20px rgba(0,0,0,.5);text-align:center;min-width:280px`;
     document.body.appendChild(hint);
   }
-  hint.innerHTML = `✅ Gespeichert &nbsp;·&nbsp; <code style="color:#86efac">sudo systemctl restart hausradar</code>`;
+
+  // Zuerst anzeigen, dann Reload im Hintergrund
+  hint.innerHTML = `⏳ Gespeichert – Konfiguration wird neu geladen …`;
   hint.style.display = "block";
   clearTimeout(hint._timer);
-  hint._timer = setTimeout(() => { hint.style.display = "none"; }, 6000);
+
+  try {
+    await apiFetch("/api/config/reload", { method: "POST" });
+    hint.innerHTML = `✅ Gespeichert – Konfiguration neu geladen`;
+  } catch (_) {
+    // Reload nicht kritisch – Änderung wurde bereits gespeichert
+    hint.innerHTML = `✅ Gespeichert`;
+  }
+
+  hint._timer = setTimeout(() => { hint.style.display = "none"; }, 4000);
 }
 
 // Wizard mit vorausgefülltem Sensor/Raum starten
@@ -2100,16 +2117,19 @@ async function recomputeLayout() {
   if (btn) { btn.disabled = true; btn.textContent = "🗺 Berechne …"; }
   try {
     const res = await apiFetch("/api/calibrate/layout", { method: "POST" });
-    showRestartHint();
-    // Hinweis mit Ergebnis
+
+    // Konfiguration live neu laden (kein Neustart nötig)
+    await showRestartHint();
+
+    // Ergebnis-Toast
     const resultEl = document.createElement("div");
     resultEl.style.cssText = `
-      position:fixed;top:60px;left:50%;transform:translateX(-50%);
+      position:fixed;top:110px;left:50%;transform:translateX(-50%);
       background:#0c1a2e;border:1px solid #3b82f6;border-radius:8px;
-      padding:10px 20px;font-size:.875rem;z-index:9999;
-      box-shadow:0 4px 20px rgba(0,0,0,.5)`;
+      padding:10px 20px;font-size:.875rem;z-index:9998;
+      box-shadow:0 4px 20px rgba(0,0,0,.5);text-align:center`;
     resultEl.innerHTML = `🗺 Grundriss neu berechnet – ${res.placed} Räume platziert<br>
-      <small style="color:var(--muted)">Neustart erforderlich um die Änderungen zu sehen</small>`;
+      <small style="color:var(--muted)">Grundriss-Seite neu laden um die neuen Positionen zu sehen</small>`;
     document.body.appendChild(resultEl);
     setTimeout(() => resultEl.remove(), 6000);
   } catch (e) {

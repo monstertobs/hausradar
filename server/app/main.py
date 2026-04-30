@@ -188,6 +188,31 @@ def live(request: Request):
     return live_state.build_response(timeout)
 
 
+@app.post("/api/config/reload")
+def config_reload(request: Request):
+    """
+    Lädt rooms.json und sensors.json live neu in app.state.
+    Kein Neustart nötig für Kalibrierungsänderungen (Möbel, Zonen, Türen,
+    Raummaße, Sensorposition, Grundriss-Layout).
+    """
+    try:
+        request.app.state.rooms   = load_rooms()
+        request.app.state.sensors = load_sensors(request.app.state.rooms)
+        logger.info(
+            "Konfiguration live neu geladen: %d Räume, %d Sensoren",
+            len(request.app.state.rooms),
+            len(request.app.state.sensors),
+        )
+        return {
+            "status":  "ok",
+            "rooms":   len(request.app.state.rooms),
+            "sensors": len(request.app.state.sensors),
+        }
+    except Exception as exc:
+        logger.error("Fehler beim Konfigurations-Reload: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.get("/api/health")
 def health():
     return {
