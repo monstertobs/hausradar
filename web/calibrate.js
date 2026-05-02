@@ -2187,6 +2187,141 @@ async function handleCreateRoom() {
 }
 
 // ---------------------------------------------------------------------------
+// Tür-Erkennung
+// ---------------------------------------------------------------------------
+
+const _WALL_DE = {
+  north: "Obere Wand",
+  south: "Untere Wand",
+  west:  "Linke Wand",
+  east:  "Rechte Wand",
+};
+
+async function loadDoorSuggestions() {
+  const body  = $("door-suggestions-body");
+  const stats = $("door-stats");
+  if (!body) return;
+
+  try {
+    const data = await apiFetch("/api/doors/suggestions");
+    const s = data.stats || {};
+    if (stats) stats.textContent =
+      `${s.exit_events || 0} Exit-Events · ${s.entry_events || 0} Eintritte gesammelt`;
+
+    const suggestions = data.suggestions || [];
+
+    if (suggestions.length === 0) {
+      body.innerHTML = `
+        <div style="padding:16px 0;color:var(--muted);font-size:.875rem">
+          <p>Noch keine Türen erkannt.</p>
+          <p style="margin-top:6px">
+            Bewege dich mehrfach durch alle Türöffnungen – nach etwa
+            <strong style="color:var(--text)">4–10 Durchgängen</strong>
+            pro Tür erscheinen hier Vorschläge.
+          </p>
+          <div style="margin-top:12px;padding:10px 14px;background:var(--surface);
+                      border:1px solid var(--border);border-radius:6px;font-size:.8rem">
+            💡 <strong>Tipp:</strong> Geh ins Wohnzimmer rein und raus, dann in die Küche,
+            dann in den Flur – je öfter desto besser.
+          </div>
+        </div>`;
+      return;
+    }
+
+    body.innerHTML = suggestions.map((s, i) => {
+      const conf    = Math.round(s.confidence * 100);
+      const confCol = conf >= 70 ? "var(--green)" : conf >= 40 ? "var(--yellow)" : "var(--muted)";
+      const leadsTo = s.leads_to_name
+        ? `<span style="color:var(--accent)">→ ${esc(s.leads_to_name)}</span>`
+        : `<span style="color:var(--muted)">→ Ziel unbekannt (mehr Daten nötig)</span>`;
+
+      return `
+        <div class="door-candidate" id="door-cand-${i}">
+          <div class="door-candidate__header">
+            <span class="door-candidate__icon">🚪</span>
+            <div>
+              <strong>${esc(s.room_name)}</strong>
+              &nbsp;·&nbsp;
+              <span style="color:var(--muted)">${_WALL_DE[s.wall] || s.wall}</span>
+              &nbsp;·&nbsp; ${leadsTo}
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+              <span style="font-size:.78rem;color:${confCol}">
+                ${conf}% sicher (${s.exit_count}×)
+              </span>
+              <button class="btn-mark"
+                style="font-size:.78rem;padding:4px 10px;background:#15803d"
+                onclick="confirmDoor(${i})">
+                ✓ Hinzufügen
+              </button>
+              <button class="btn-secondary"
+                style="font-size:.78rem;padding:4px 8px"
+                onclick="ignoreDoor(${i})">
+                ✕
+              </button>
+            </div>
+          </div>
+          <div class="door-candidate__meta">
+            Position: <strong>${s.position_mm} mm</strong> von der Ecke
+            &nbsp;·&nbsp; Breite ca. <strong>${s.width_mm} mm</strong>
+            (${(s.width_mm / 10).toFixed(0)} cm)
+          </div>
+        </div>`;
+    }).join("");
+
+    // Kandidaten-Daten für Confirm merken
+    window._doorSuggestions = suggestions;
+
+  } catch (e) {
+    if (body) body.innerHTML =
+      `<p class="muted error-text">Fehler: ${esc(e.message)}</p>`;
+  }
+}
+
+async function confirmDoor(index) {
+  const s = (window._doorSuggestions || [])[index];
+  if (!s) return;
+
+  const el = $(`door-cand-${index}`);
+  if (el) el.style.opacity = "0.5";
+
+  try {
+    await apiFetch("/api/doors/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id:     s.room_id,
+        wall:        s.wall,
+        position_mm: s.position_mm,
+        width_mm:    s.width_mm,
+        leads_to:    s.leads_to || null,
+      }),
+    });
+
+    await apiFetch("/api/config/reload", { method: "POST" });
+
+    if (el) {
+      el.style.opacity = "1";
+      el.style.background = "#052e16";
+      el.style.borderColor = "#15803d";
+      el.querySelector(".door-candidate__header").innerHTML =
+        `<span style="color:var(--green);font-size:1.1rem">✅</span>
+         <span style="color:var(--green)">Tür hinzugefügt!</span>`;
+    }
+
+    setTimeout(() => loadDoorSuggestions(), 1500);
+  } catch (e) {
+    if (el) el.style.opacity = "1";
+    alert(`Fehler: ${e.message}`);
+  }
+}
+
+function ignoreDoor(index) {
+  const el = $(`door-cand-${index}`);
+  if (el) el.style.display = "none";
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
@@ -2194,16 +2329,26 @@ document.addEventListener("DOMContentLoaded", () => {
   loadSelectors();
   loadRoomsMgmt();
   loadOverview();
+  loadDoorSuggestions();
   initStatusBadge();
 
   $("btn-reload-overview")?.addEventListener("click", loadOverview);
   $("btn-reload-rooms")?.addEventListener("click",   loadRoomsMgmt);
   $("btn-layout")?.addEventListener("click",         recomputeLayout);
   $("btn-create-room")?.addEventListener("click",    handleCreateRoom);
+  $("btn-refresh-doors")?.addEventListener("click",  loadDoorSuggestions);
+  $("btn-clear-door-events")?.addEventListener("click", async () => {
+    if (!confirm("Alle gesammelten Tür-Messdaten löschen?")) return;
+    await apiFetch("/api/doors/events", { method: "DELETE" });
+    await loadDoorSuggestions();
+  });
 
   // Übersicht nach erfolgreichem Speichern automatisch aktualisieren
   document.addEventListener("calibration-saved", () => {
     loadOverview();
     loadRoomsMgmt();
   });
+
+  // Tür-Vorschläge alle 30s automatisch aktualisieren
+  setInterval(loadDoorSuggestions, 30_000);
 });

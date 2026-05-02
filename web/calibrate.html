@@ -92,6 +92,36 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- Automatische Türerkennung                                 -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <section class="card" id="door-detection-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <div>
+          <h2 style="margin:0">TÜREN &amp; DURCHGÄNGE</h2>
+          <p class="muted" style="margin:4px 0 0;font-size:.82rem">
+            HausRadar erkennt automatisch Türen wenn Personen den Raum verlassen.
+            Je mehr Bewegung, desto genauer.
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="door-stats" class="muted" style="font-size:.8rem"></span>
+          <button class="btn-secondary" id="btn-refresh-doors" style="font-size:.8rem">
+            ↺ Aktualisieren
+          </button>
+          <button class="btn-secondary" id="btn-clear-door-events"
+                  style="font-size:.8rem;color:var(--red);border-color:var(--red)"
+                  title="Alle gesammelten Messdaten löschen und neu starten">
+            🗑 Reset
+          </button>
+        </div>
+      </div>
+      <div id="door-suggestions-body">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
     <!-- Neue Kalibrierung                                         -->
     <!-- ══════════════════════════════════════════════════════════ -->
     <section class="card">

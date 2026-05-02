@@ -18,7 +18,12 @@ from app.coordinate_transform import full_transform
 from app import database as db
 from app import live_state
 from app import tracker as person_tracker
+from app import door_detector
 from app.websocket_service import manager as ws_manager
+
+# Letzte bekannte Track-IDs pro Sensor (für Exit-Erkennung)
+_prev_track_ids: Dict[str, Dict[int, dict]] = {}
+_prev_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -159,9 +164,18 @@ class MqttService:
             # ── Personen-Tracking: stabile IDs, Ghost-Frames, Farben ──────────
             tracked = person_tracker.get_tracker(sensor_id).update(enriched)
             # Nur echte (nicht Ghost) Targets für DB und target_count
-            real_targets   = [t for t in tracked if not t.get("ghost", False)]
+            real_targets = [t for t in tracked if not t.get("ghost", False)]
             # Alle Tracks (inkl. Ghosts) für WebSocket-Anzeige
-            all_targets    = tracked
+            all_targets  = tracked
+
+            # ── Tür-Erkennung: Exits und Eintritte registrieren ───────────────
+            try:
+                self._detect_door_events(
+                    sensor_id, room_id, tracked,
+                    room["width_mm"], room["height_mm"],
+                )
+            except Exception:
+                pass  # Tür-Erkennung darf den Hauptpfad nie blockieren
 
             live_state.update(sensor_id, {
                 "sensor_id":    sensor_id,
@@ -200,6 +214,43 @@ class MqttService:
 
         except Exception as exc:
             logger.warning("MQTT _process Fehler: %s", exc)
+
+    def _detect_door_events(self, sensor_id: str, room_id: str,
+                            tracked: list, room_w: float, room_h: float) -> None:
+        """
+        Vergleicht aktuelle Tracks mit dem letzten Frame.
+        Verschwundene Tracks nahe einer Wand → Exit-Event.
+        Neue Tracks die vorher nicht da waren → Entry-Event.
+        """
+        with _prev_lock:
+            prev = _prev_track_ids.get(sensor_id, {})
+
+            # Aktuelle echte Track-IDs (keine Ghosts)
+            curr: Dict[int, dict] = {
+                t["track_id"]: t
+                for t in tracked
+                if not t.get("ghost", False)
+            }
+
+            # Exits: Track war real, ist jetzt komplett weg (auch kein Ghost mehr)
+            all_ids_now = {t["track_id"] for t in tracked}
+            for tid, t in prev.items():
+                if tid not in all_ids_now:
+                    door_detector.record_exit(
+                        room_id,
+                        t["room_x_mm"], t["room_y_mm"],
+                        room_w, room_h,
+                    )
+
+            # Eintritte: neue echte Tracks die vorher nicht existierten
+            for tid, t in curr.items():
+                if tid not in prev:
+                    door_detector.record_entry(
+                        room_id,
+                        t["room_x_mm"], t["room_y_mm"],
+                    )
+
+            _prev_track_ids[sensor_id] = curr
 
 
 # Globale Singleton-Instanz
