@@ -421,6 +421,7 @@ main {
   stroke: #4b5563;
   stroke-width: .7;
   stroke-dasharray: 3 2;
+  pointer-events: none;
 }
 .zone-label {
   font: 6.5px/1 system-ui, sans-serif;

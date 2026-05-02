@@ -237,6 +237,14 @@ class Floorplan {
       d.curFx = newFx;
       d.curFy = newFy;
 
+      // Zugehörige Zone (gleiche ID) mitbewegen
+      const zoneRect = d.el.closest(".room-group")
+        ?.querySelector(`[data-zone-id="${d.id}"]`);
+      if (zoneRect) {
+        zoneRect.setAttribute("x", newFx);
+        zoneRect.setAttribute("y", newFy);
+      }
+
     } else { // door
       const wall       = d.wall;
       const origPosMm  = d.origPosMm;
@@ -558,6 +566,7 @@ class Floorplan {
       g.appendChild(this._el("rect", {
         x: zx, y: zy, width: zw, height: zh,
         class: "zone-rect",
+        "data-zone-id": zone.id || "",
       }));
 
       // Zonen-Beschriftung nur wenn genug Platz
