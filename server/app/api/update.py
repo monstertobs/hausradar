@@ -325,13 +325,14 @@ def _do_update():
         _state["phase"] = "restarting"
 
     restart = subprocess.run(
-        ["sudo", "systemctl", "restart", SERVICE_NAME],
+        ["sudo", "-n", "/usr/bin/systemctl", "restart", SERVICE_NAME],
         capture_output=True, text=True,
         timeout=30,
     )
     if restart.returncode != 0:
-        # Kein Sudo-Recht → als done markieren, manueller Neustart
-        _emit("warn", "Automatischer Neustart nicht möglich (sudo fehlt).", -1)
+        # Kein Sudo-Recht oder anderer Fehler → als done markieren, manueller Neustart
+        err = (restart.stderr or restart.stdout or "").strip()
+        _emit("warn", f"Neustart fehlgeschlagen (exit {restart.returncode}): {err or 'kein Fehlertext'}", -1)
         _emit("warn", f"Bitte manuell: sudo systemctl restart {SERVICE_NAME}", -1)
         with _lock:
             _state["phase"] = "done"
