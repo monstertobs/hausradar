@@ -1805,8 +1805,9 @@ function openRoomLayoutEditor(room, allRooms) {
   const hint = document.createElement("p");
   hint.className = "room-layout-hint";
   hint.innerHTML =
-    "<span style='color:var(--accent)'>Möbel</span> frei ziehen · " +
-    "<span style='color:#f97316'>Türen</span> entlang der Wand ziehen";
+    "<span style='color:var(--accent)'>Möbel</span> einzeln ziehen · " +
+    "<span style='color:#f97316'>Türen</span> entlang der Wand · " +
+    "<span style='color:var(--muted)'>Hintergrund ziehen = alle Möbel verschieben</span>";
 
   // ── SVG aufbauen ──────────────────────────────────────────────────────────
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -1932,19 +1933,45 @@ function openRoomLayoutEditor(room, allRooms) {
 
   // ── Drag-Logik ────────────────────────────────────────────────────────────
   let drag = null;
+  // Für "Alle verschieben": gespeicherte Ausgangspositionne pro Möbel
+  let allOrigPositions = {};
 
   function getClientXY(e) {
     if (e.touches && e.touches[0]) return { cx: e.touches[0].clientX, cy: e.touches[0].clientY };
     return { cx: e.clientX, cy: e.clientY };
   }
 
+  // Alle Möbel-SVG-Elemente auf aktuelle furnState-Position neu zeichnen
+  function redrawAllFurn() {
+    for (const [id, s] of Object.entries(furnState)) {
+      const els = furnEls[id];
+      if (!els) continue;
+      const px = PAD + s.x_mm * scale, py = PAD + s.y_mm * scale;
+      els.rect.setAttribute("x", px);
+      els.rect.setAttribute("y", py);
+      els.label.setAttribute("x", px + els.fw / 2);
+      els.label.setAttribute("y", py + els.fh / 2 + 4);
+    }
+  }
+
   function onPointerDown(e) {
+    const { cx, cy } = getClientXY(e);
     const g = e.target.closest("[data-type]");
-    if (!g) return;
+
+    // Kein Treffer auf Möbel/Tür → Hintergrund ziehen = ALLE Möbel verschieben
+    if (!g) {
+      e.preventDefault();
+      allOrigPositions = {};
+      for (const [id, s] of Object.entries(furnState))
+        allOrigPositions[id] = { x_mm: s.x_mm, y_mm: s.y_mm };
+      drag = { type: "all", startCX: cx, startCY: cy };
+      svg.style.cursor = "grabbing";
+      return;
+    }
+
     e.preventDefault();
     const type = g.dataset.type;
     const id   = g.dataset.id;
-    const { cx, cy } = getClientXY(e);
     g.style.cursor = "grabbing";
 
     if (type === "furn") {
@@ -1966,7 +1993,18 @@ function openRoomLayoutEditor(room, allRooms) {
     const dxMm = (cx - drag.startCX) / scale;
     const dyMm = (cy - drag.startCY) / scale;
 
-    if (drag.type === "furn") {
+    if (drag.type === "all") {
+      // Alle Möbel gleichzeitig verschieben
+      for (const [id, orig] of Object.entries(allOrigPositions)) {
+        const f   = (room.furniture || []).find(x => x.id === id);
+        if (!f) continue;
+        const s = furnState[id];
+        s.x_mm = Math.max(0, Math.min(room.width_mm  - f.width_mm,  orig.x_mm + dxMm));
+        s.y_mm = Math.max(0, Math.min(room.height_mm - f.height_mm, orig.y_mm + dyMm));
+      }
+      redrawAllFurn();
+
+    } else if (drag.type === "furn") {
       const f   = (room.furniture || []).find(x => x.id === drag.id);
       const els = furnEls[drag.id];
       const s   = furnState[drag.id];
@@ -1998,8 +2036,12 @@ function openRoomLayoutEditor(room, allRooms) {
 
   function onPointerUp(e) {
     if (!drag) return;
-    const g = svg.querySelector(`[data-id="${drag.id}"]`);
-    if (g) g.style.cursor = drag.type === "furn" ? "grab" : "";
+    if (drag.type === "all") {
+      svg.style.cursor = "";
+    } else {
+      const g = svg.querySelector(`[data-id="${drag.id}"]`);
+      if (g) g.style.cursor = drag.type === "furn" ? "grab" : "";
+    }
     drag = null;
   }
 
