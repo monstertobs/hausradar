@@ -174,8 +174,8 @@ class MqttService:
                     sensor_id, room_id, tracked,
                     room["width_mm"], room["height_mm"],
                 )
-            except Exception:
-                pass  # Tür-Erkennung darf den Hauptpfad nie blockieren
+            except Exception as exc:
+                logger.warning("_detect_door_events Fehler: %s", exc, exc_info=True)
 
             live_state.update(sensor_id, {
                 "sensor_id":    sensor_id,
@@ -219,13 +219,11 @@ class MqttService:
                             tracked: list, room_w: float, room_h: float) -> None:
         """
         Vergleicht aktuelle Tracks mit dem letzten Frame.
-        Verschwundene Tracks nahe einer Wand → Exit-Event.
+        Exit-Events werden auf zwei Arten erkannt:
+          1. Track verschwindet komplett (war nahe Wand)
+          2. Track war inside_room=True, ist jetzt inside_room=False
+             (Person verlässt Raumgrenze, auch wenn Sensor sie noch verfolgt)
         Neue echte Tracks die vorher nicht da waren → Entry-Event.
-
-        Bug-Fix: prev speichert ALLE Tracks (real + Ghost), damit die letzte
-        bekannte Position erhalten bleibt bis der Track komplett verschwindet.
-        Vorher: prev enthielt nur reale Tracks → beim Ghost-Übergang wurde
-        prev geleert → beim endgültigen Verschwinden war prev leer → kein Exit.
         """
         with _prev_lock:
             # Alle Tracks (real + Ghost) aus dem letzten Frame
@@ -237,7 +235,7 @@ class MqttService:
             curr_real = {t["track_id"]: t for t in tracked
                          if not t.get("ghost", False)}
 
-            # Exits: Track war noch da (real oder Ghost), ist jetzt komplett weg
+            # Exit-Variante 1: Track komplett verschwunden (war noch da, jetzt weg)
             for tid, t in prev_all.items():
                 if tid not in curr_all:
                     door_detector.record_exit(
@@ -246,10 +244,33 @@ class MqttService:
                         room_w, room_h,
                     )
 
+            # Exit-Variante 2: Track noch da, aber gerade aus Raumgrenze heraus
+            # Nutzt letzte bekannte Position IN der Raumgrenze (prev-Frame)
+            for tid, t_curr in curr_all.items():
+                if t_curr.get("ghost"):
+                    continue
+                t_prev = prev_all.get(tid)
+                if t_prev is None:
+                    continue
+                was_inside = t_prev.get("inside_room", True)
+                is_inside  = t_curr.get("inside_room", True)
+                if was_inside and not is_inside:
+                    # Letzte Position innerhalb des Raums (prev-Frame) als Exit-Punkt
+                    door_detector.record_exit(
+                        room_id,
+                        t_prev["room_x_mm"], t_prev["room_y_mm"],
+                        room_w, room_h,
+                    )
+
             # Eintritte: neue echte Tracks (vorher weder real noch Ghost)
+            # ODER Track war draußen und ist jetzt (wieder) drinnen
             for tid, t in curr_real.items():
                 if tid not in prev_all:
                     door_detector.record_entry(room_id, t["room_x_mm"], t["room_y_mm"])
+                else:
+                    t_prev = prev_all[tid]
+                    if not t_prev.get("inside_room", True) and t.get("inside_room", True):
+                        door_detector.record_entry(room_id, t["room_x_mm"], t["room_y_mm"])
 
             _prev_track_ids[sensor_id + ":all"]  = curr_all
             _prev_track_ids[sensor_id + ":real"] = curr_real

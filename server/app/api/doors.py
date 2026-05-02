@@ -103,8 +103,8 @@ def confirm_door(body: ConfirmDoorBody, request: Request):
     if body.leads_to and body.leads_to != "outside":
         target_room = next((r for r in rooms if r["id"] == body.leads_to), None)
         if target_room:
-            opposite = {"north": "south", "south": "north",
-                        "east": "west",   "west": "east"}.get(body.wall, body.wall)
+            opposite = {"top": "bottom", "bottom": "top",
+                        "left": "right",  "right": "left"}.get(body.wall, body.wall)
             target_door = {
                 "id":          f"auto_{body.leads_to}_{opposite}_{body.position_mm}",
                 "wall":        opposite,
