@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HausRadar</title>
+  <title>HausRadar – Live</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
     <h1 class="logo">&#x1F4E1; HausRadar</h1>
     <nav>
-      <a href="index.html" class="active">Übersicht</a>
+      <a href="index.html" class="active">Live</a>
       <a href="profiles.html">Analyse</a>
       <a href="settings.html">Einstellungen</a>
       <a href="calibrate.html">Kalibrierung</a>
@@ -24,15 +24,24 @@
     <section class="card">
       <div class="card-header-row">
         <h2>Grundriss</h2>
-        <button id="fp-edit-btn" class="btn btn-secondary btn-sm" title="Möbel und Türen verschieben">
+        <button id="fp-edit-btn" class="btn btn-secondary btn-sm"
+                title="Möbel und Türen verschieben">
           ✏️ Layout bearbeiten
         </button>
       </div>
+
       <div class="floorplan-wrap">
         <div id="floorplan-container">
           <p class="muted" style="padding:20px">Lade Grundriss …</p>
         </div>
       </div>
+
+      <!-- Kompakte Raumstatus-Leiste -->
+      <div id="room-status-bar" class="room-status-bar">
+        <span class="muted" style="font-size:.8rem">Lade Räume …</span>
+      </div>
+
+      <!-- Legende -->
       <div class="fp-legend">
         <span class="fp-legend-item">
           <span class="fp-legend-dot fp-legend-idle"></span>ruhig
@@ -57,50 +66,9 @@
             <circle cx="7" cy="7" r="4" fill="#4ade80" opacity=".9"/>
             <circle cx="7" cy="7" r="7" fill="none" stroke="#4ade80" stroke-width="1" opacity=".3"/>
           </svg>
-          Ziel
+          Person
         </span>
       </div>
-    </section>
-
-    <!-- System-Status -->
-    <section class="card">
-      <h2>System-Status</h2>
-      <div class="info-grid">
-        <span class="info-label">Backend</span>
-        <span id="health-status" class="info-value">–</span>
-        <span class="info-label">WebSocket</span>
-        <span id="ws-status" class="info-value">–</span>
-        <span class="info-label">Räume</span>
-        <span id="room-count" class="info-value">–</span>
-        <span class="info-label">Sensoren</span>
-        <span id="sensor-count" class="info-value">–</span>
-      </div>
-    </section>
-
-    <!-- Räume -->
-    <section class="card">
-      <h2>Räume</h2>
-      <div id="room-list" class="room-grid">
-        <p class="muted">Lade Räume …</p>
-      </div>
-    </section>
-
-    <!-- Sensoren -->
-    <section class="card">
-      <h2>Sensoren</h2>
-      <div id="sensor-list" class="sensor-grid">
-        <p class="muted">Lade Sensoren …</p>
-      </div>
-    </section>
-
-    <!-- Live-Debug -->
-    <section class="card" id="live-card">
-      <h2>Live-Daten <span id="live-counter" class="live-counter"></span></h2>
-      <div class="live-header">
-        <span class="info-label">Letztes Update</span>
-        <span id="live-timestamp" class="info-value muted">–</span>
-      </div>
-      <pre id="live-debug" class="debug-json">Warte auf WebSocket-Daten …</pre>
     </section>
 
   </main>

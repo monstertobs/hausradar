@@ -5,46 +5,38 @@ let _healthTimer = null;
 // ---------------------------------------------------------------------------
 // Einstiegspunkt
 // ---------------------------------------------------------------------------
-
 async function initSettings() {
   _loadHealth();
-  _loadConfig();
+  _loadSensors();
   _healthTimer = setInterval(_loadHealth, 5000);
 }
 
 // ---------------------------------------------------------------------------
-// System-Status (Health-Endpoint)
+// System-Status
 // ---------------------------------------------------------------------------
-
 async function _loadHealth() {
   const el = document.getElementById("health-grid");
   try {
     const h = await API.health();
     _renderHealth(el, h);
-    // Topbar-Badge mitführen
     const badge = document.getElementById("status-badge");
-    if (badge) {
-      badge.className = "badge badge--ok";
-      badge.textContent = "Backend OK";
-    }
+    if (badge) { badge.className = "badge badge--ok"; badge.textContent = "Backend OK"; }
   } catch {
-    el.innerHTML = '<p class="muted error-text">Backend nicht erreichbar.</p>';
+    if (el) el.innerHTML = '<p class="muted error-text">Backend nicht erreichbar.</p>';
     const badge = document.getElementById("status-badge");
     if (badge) { badge.className = "badge badge--error"; badge.textContent = "Fehler"; }
   }
 }
 
 function _renderHealth(el, h) {
+  if (!el) return;
   const version = h.version ? `v${esc(h.version)}` : "–";
   const rows = [
-    ["Version",           `<strong style="color:var(--text);font-size:1rem">${version}</strong>`],
-    ["Backend",           _dot(true) + " OK"],
-    ["Uptime",            _fmt_uptime(h.uptime_s)],
-    ["Datenbank",         h.db_ok          ? _dot(true)  + " OK"        : _dot(false) + " Fehler"],
-    ["MQTT",              h.mqtt_connected ? _dot(true) + " Verbunden"  : _dot(false) + " Kein Broker"],
-    ["WebSocket-Clients", String(h.ws_clients)],
+    ["Version",  `<strong style="color:var(--text)">${version}</strong>`],
+    ["Uptime",   _fmt_uptime(h.uptime_s)],
+    ["MQTT",     h.mqtt_connected ? _dot(true) + " Verbunden" : _dot(false) + " Nicht verbunden"],
+    ["Datenbank", h.db_ok ? _dot(true) + " OK" : _dot(false) + " Fehler"],
   ];
-
   el.innerHTML = rows.map(([label, value]) =>
     `<div class="health-row">
        <span class="health-label">${label}</span>
@@ -59,92 +51,65 @@ function _dot(ok) {
 
 function _fmt_uptime(s) {
   if (s == null) return "–";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
   if (h > 0) return `${h} h ${m} min`;
   if (m > 0) return `${m} min ${sec} s`;
   return `${sec} s`;
 }
 
 // ---------------------------------------------------------------------------
-// Räume und Sensoren
+// Sensoren
 // ---------------------------------------------------------------------------
-
-async function _loadConfig() {
+async function _loadSensors() {
   try {
-    const [rooms, sensors, liveData] = await Promise.all([
-      API.rooms(), API.sensors(), API.live().catch(() => null),
+    const [sensors, rooms, liveData] = await Promise.all([
+      API.sensors(), API.rooms(), API.live().catch(() => null),
     ]);
-    _renderRooms(rooms);
     _renderSensors(sensors, rooms, liveData);
     _initProvisioning(sensors, rooms);
   } catch {
-    document.getElementById("settings-rooms").innerHTML =
-      '<p class="muted error-text">Fehler beim Laden der Konfiguration.</p>';
-    document.getElementById("settings-sensors").innerHTML = "";
+    const el = document.getElementById("settings-sensors");
+    if (el) el.innerHTML = '<p class="muted error-text">Fehler beim Laden.</p>';
   }
-}
-
-function _renderRooms(rooms) {
-  const el = document.getElementById("settings-rooms");
-  if (!rooms.length) { el.innerHTML = '<p class="muted">Keine Räume konfiguriert.</p>'; return; }
-
-  el.innerHTML = rooms.map(r => {
-    const zones = (r.zones || []).map(z =>
-      `<span class="chip">${esc(z.name)}</span>`
-    ).join(" ");
-    return `
-      <div class="room-tile">
-        <strong>${esc(r.name)}</strong>
-        <div class="room-tile__meta">
-          ${(r.width_mm / 1000).toFixed(1)} m × ${(r.height_mm / 1000).toFixed(1)} m
-          &nbsp;·&nbsp; ${(r.zones || []).length} Zone(n)
-        </div>
-        ${zones ? `<div class="chip-row">${zones}</div>` : ""}
-      </div>`;
-  }).join("");
 }
 
 function _renderSensors(sensors, rooms, liveData) {
   const el      = document.getElementById("settings-sensors");
+  const summary = document.getElementById("sensors-summary");
+  if (!el) return;
+
   const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.name]));
-  if (!sensors.length) { el.innerHTML = '<p class="muted">Keine Sensoren konfiguriert.</p>'; return; }
+
+  if (!sensors.length) {
+    el.innerHTML = '<p class="muted">Keine Sensoren konfiguriert.</p>';
+    return;
+  }
+
+  const online  = sensors.filter(s => liveData?.sensors?.[s.id]?.online).length;
+  if (summary) summary.textContent = `${online} / ${sensors.length} online`;
 
   el.innerHTML = sensors.map(s => {
-    const roomName   = roomMap[s.room_id] || s.room_id;
-    const live       = liveData?.sensors?.[s.id];
-    const isOnline   = live?.online === true;
-    const isDisabled = s.enabled === false;
-    const liveClass  = isDisabled  ? "dot dot--off"
-                     : isOnline    ? "dot dot--ok"
-                     :              "dot dot--warn";
-    const liveLabel  = isDisabled  ? "deaktiviert"
-                     : isOnline    ? "online – sendet"
-                     :              "offline";
-    const lastSeen   = live?.last_seen_seconds_ago != null
-      ? `<br>Zuletzt: vor ${Math.round(live.last_seen_seconds_ago)} s`
-      : "";
-    const targets    = isOnline && live.target_count > 0
-      ? `<br><span style="color:var(--green)">${live.target_count} Person(en) erkannt</span>`
-      : "";
-    const mqttTopic  = `hausradar/sensor/${esc(s.id)}/state`;
+    const live      = liveData?.sensors?.[s.id];
+    const isOnline  = live?.online === true;
+    const disabled  = s.enabled === false;
+    const dotClass  = disabled ? "dot--off" : isOnline ? "dot--ok" : "dot--warn";
+    const statusTxt = disabled ? "deaktiviert" : isOnline ? "online" : "offline";
+    const personTxt = isOnline && live.target_count > 0
+      ? `<span style="color:var(--green)"> · ${live.target_count} Person(en)</span>` : "";
+    const mqttTopic = `hausradar/sensor/${esc(s.id)}/state`;
 
     return `
       <div class="sensor-tile" id="sensor-tile-${esc(s.id)}">
         <div class="sensor-tile__header">
-          <span><span class="${liveClass}"></span> <strong>${esc(s.name)}</strong></span>
-          <button class="btn-identify" onclick="identifySensor('${esc(s.id)}','${esc(s.name)}')"
+          <span><span class="dot ${dotClass}"></span> <strong>${esc(s.name)}</strong></span>
+          <button class="btn-identify"
+                  onclick="identifySensor('${esc(s.id)}','${esc(s.name)}')"
                   title="Sensor identifizieren">📡 Identifizieren</button>
         </div>
         <div class="sensor-tile__meta">
-          Raum: <strong>${esc(roomName)}</strong><br>
-          Status: ${liveLabel}${lastSeen}${targets}<br>
-          Position: ${esc(s.x_mm)} / ${esc(s.y_mm)} mm · Höhe: ${esc(s.mount_height_mm)} mm<br>
-          Drehung: ${esc(s.rotation_deg)}°<br>
-          <span class="mqtt-topic" title="Diese ID in der ESP32-Firmware eintragen (config.h → SENSOR_ID)">
-            MQTT: <code>${mqttTopic}</code>
-          </span>
+          <strong>${esc(roomMap[s.room_id] || s.room_id)}</strong>
+          &nbsp;·&nbsp; ${statusTxt}${personTxt}<br>
+          <span class="mqtt-topic"><code>${mqttTopic}</code></span>
         </div>
       </div>`;
   }).join("");
@@ -153,15 +118,13 @@ function _renderSensors(sensors, rooms, liveData) {
 // ---------------------------------------------------------------------------
 // Sensor-Identifikation via WebSocket
 // ---------------------------------------------------------------------------
-
 function identifySensor(sensorId, sensorName) {
-  // Overlay aufbauen
   const overlay = document.createElement("div");
   overlay.className = "identify-overlay";
   overlay.innerHTML = `
     <div class="identify-box">
       <div class="identify-box__title">📡 Sensor identifizieren</div>
-      <p>Bewege dich jetzt vor <strong>${esc(sensorName)}</strong>.<br>
+      <p>Bewege dich vor <strong>${esc(sensorName)}</strong>.<br>
          Der Sensor wird bestätigt sobald Bewegung erkannt wird.</p>
       <div class="identify-status" id="id-status">
         <span class="dot dot--warn"></span> Warte auf Signal …
@@ -171,9 +134,7 @@ function identifySensor(sensorId, sensorName) {
     </div>`;
   document.body.appendChild(overlay);
 
-  let ws      = null;
-  let timer   = null;
-  let done    = false;
+  let ws = null, timer = null, done = false;
 
   function close() {
     if (ws) { try { ws.close(); } catch(_) {} }
@@ -184,16 +145,14 @@ function identifySensor(sensorId, sensorName) {
   document.getElementById("id-cancel").addEventListener("click", close);
   overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
 
-  // WebSocket öffnen
   try {
     ws = new WebSocket(`ws://${location.host}/ws/live`);
-  } catch(e) {
+  } catch {
     document.getElementById("id-status").innerHTML =
       `<span style="color:var(--red)">❌ WebSocket nicht verfügbar</span>`;
     return;
   }
 
-  // Timeout nach 20 Sekunden
   timer = setTimeout(() => {
     if (done) return;
     document.getElementById("id-status").innerHTML =
@@ -204,64 +163,44 @@ function identifySensor(sensorId, sensorName) {
   ws.onmessage = e => {
     if (done) return;
     let data;
-    try { data = JSON.parse(e.data); } catch(_) { return; }
+    try { data = JSON.parse(e.data); } catch { return; }
     const s = data?.sensors?.[sensorId];
     if (!s?.online) return;
-
-    // Online aber noch keine Bewegung → zeige "online"
     const statusEl = document.getElementById("id-status");
-    if (statusEl) {
-      statusEl.innerHTML = `<span class="dot dot--ok"></span> Sensor online …`;
-    }
-
+    if (statusEl) statusEl.innerHTML = `<span class="dot dot--ok"></span> Sensor online …`;
     if (s.target_count > 0) {
       done = true;
       clearTimeout(timer);
       ws.close();
-      if (statusEl) {
-        statusEl.innerHTML =
-          `<span style="color:var(--green);font-size:1.3rem">✅ Bewegung erkannt!</span>`;
-      }
+      if (statusEl)
+        statusEl.innerHTML = `<span style="color:var(--green);font-size:1.3rem">✅ Bewegung erkannt!</span>`;
       const det = document.getElementById("id-detail");
-      if (det) {
-        det.innerHTML = `
-          <span class="dot dot--ok"></span> Raum: <strong>${esc(s.room_id)}</strong><br>
-          ${s.target_count} Person(en) in Sensorreichweite<br>
-          Zuletzt gesehen: vor ${Math.round(s.last_seen_seconds_ago ?? 0)} s`;
-      }
+      if (det) det.innerHTML = `
+        Raum: <strong>${esc(s.room_id)}</strong> ·
+        ${s.target_count} Person(en) erkannt`;
       document.getElementById("id-cancel").textContent = "Schließen";
-
-      // Zugehörige Kachel kurz aufleuchten lassen
-      const tile = document.getElementById(`sensor-tile-${sensorId}`);
-      if (tile) {
-        tile.classList.add("sensor-tile--flash");
-        setTimeout(() => tile.classList.remove("sensor-tile--flash"), 2000);
-      }
+      document.getElementById(`sensor-tile-${sensorId}`)?.classList.add("sensor-tile--flash");
     }
   };
-
   ws.onerror = () => {
-    const statusEl = document.getElementById("id-status");
-    if (statusEl) statusEl.innerHTML =
-      `<span style="color:var(--red)">❌ Verbindungsfehler</span>`;
+    const el = document.getElementById("id-status");
+    if (el) el.innerHTML = `<span style="color:var(--red)">❌ Verbindungsfehler</span>`;
   };
 }
 
 // ---------------------------------------------------------------------------
 // Sensor-Einrichtung via WiFi-Provisioning
 // ---------------------------------------------------------------------------
-
 function _initProvisioning(sensors, rooms) {
-  const sel = document.getElementById("prov-sensor-id");
+  const sel   = document.getElementById("prov-sensor-id");
   const guide = document.getElementById("prov-guide");
   if (!sel || !guide) return;
 
   const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.name]));
 
-  // Dropdown befüllen
-  sel.innerHTML = '<option value="">-- Sensor wählen --</option>' +
+  sel.innerHTML = '<option value="">— Sensor wählen —</option>' +
     (sensors || []).map(s =>
-      `<option value="${esc(s.id)}">${esc(s.name)} (${esc(roomMap[s.room_id] || s.room_id)})</option>`
+      `<option value="${esc(s.id)}">${esc(s.name)} – ${esc(roomMap[s.room_id] || s.room_id)}</option>`
     ).join("");
 
   sel.addEventListener("change", () => {
@@ -274,68 +213,54 @@ function _initProvisioning(sensors, rooms) {
 
 function _buildProvGuide(sensor, roomName) {
   const mqttTopic = `hausradar/sensor/${esc(sensor.id)}/state`;
+
   const steps = [
     {
-      n: "1",
-      icon: "⚡",
-      title: "ESP32 flashen",
-      body: `Flashe die Firmware mit PlatformIO:<br>
-        <code>cd firmware/esp32-ld2450-mqtt<br>
-        pio run -e esp32dev -t upload</code><br>
-        <span class="prov-hint">Beim allerersten Flash noch ohne <code>config.h</code>-Änderungen nötig.</span>`
+      icon: "⚡", title: "Firmware flashen",
+      body: `Verbinde den ESP32 per USB mit deinem Computer und führe aus:<br>
+        <code class="code-block">cd firmware/esp32-ld2450-mqtt<br>pio run -e esp32dev -t upload</code>
+        <span class="prov-hint">Kein Editieren von Dateien nötig.</span>`
     },
     {
-      n: "2",
-      icon: "📶",
-      title: "WLAN-Hotspot verbinden",
-      body: `Der ESP32 öffnet einen Hotspot namens<br>
-        <strong style="color:var(--text);font-size:1rem">HausRadar-Setup-XXXXXX</strong><br>
-        Verbinde Handy oder Laptop mit diesem WLAN.
-        Ein Browser-Fenster öffnet sich automatisch
-        (Captive Portal) – sonst manuell <strong>192.168.4.1</strong> aufrufen.`
+      icon: "📶", title: "Mit HausRadar-Hotspot verbinden",
+      body: `Der ESP32 öffnet beim ersten Start automatisch einen WLAN-Hotspot:<br>
+        <strong class="prov-ssid">HausRadar-Setup-XXXXXX</strong><br>
+        Verbinde dein Handy oder deinen Computer mit diesem WLAN.
+        Ein Browser-Fenster öffnet sich automatisch – sonst manuell
+        <strong>192.168.4.1</strong> aufrufen.`
     },
     {
-      n: "3",
-      icon: "⚙️",
-      title: "Zugangsdaten eingeben",
-      body: `Im Formular folgende Werte eintragen:
+      icon: "📝", title: "Zugangsdaten eingeben",
+      body: `Trage im Formular folgende Werte ein:
         <table class="prov-table">
-          <tr><td>WLAN-Name</td><td><em>Dein Heimnetz</em></td></tr>
+          <tr><td>WLAN-Name</td><td><em>Dein Heimnetzwerk</em></td></tr>
           <tr><td>WLAN-Passwort</td><td><em>Dein WLAN-Passwort</em></td></tr>
-          <tr><td>Pi-IP / MQTT-Host</td><td><em>IP des Raspberry Pi</em></td></tr>
+          <tr><td>Pi-IP / MQTT-Host</td><td><em>IP-Adresse des Raspberry Pi</em></td></tr>
           <tr><td>Sensor-ID</td>
               <td><code class="prov-id">${esc(sensor.id)}</code>
-                  <button class="btn-copy" data-copy="${esc(sensor.id)}" title="Kopieren">⎘</button>
-              </td></tr>
+                  <button class="btn-copy" data-copy="${esc(sensor.id)}">⎘ Kopieren</button></td></tr>
           <tr><td>Raum-ID</td>
               <td><code class="prov-id">${esc(sensor.room_id)}</code>
-                  <button class="btn-copy" data-copy="${esc(sensor.room_id)}" title="Kopieren">⎘</button>
-              </td></tr>
+                  <button class="btn-copy" data-copy="${esc(sensor.room_id)}">⎘ Kopieren</button></td></tr>
         </table>`
     },
     {
-      n: "4",
-      icon: "💾",
-      title: "Speichern & Neustart",
-      body: `„Speichern" klicken. Der ESP32 startet neu und verbindet sich automatisch mit deinem
-        WLAN und dem MQTT-Broker.<br>
-        <span class="prov-hint">
-          MQTT-Topic: <code>${mqttTopic}</code>
-        </span>`
+      icon: "💾", title: "Speichern – fertig!",
+      body: `„Speichern" klicken. Der ESP32 startet neu, verbindet sich mit deinem WLAN
+        und sendet ab sofort Daten an den Raspberry Pi.<br>
+        <span class="prov-hint">MQTT-Topic: <code>${mqttTopic}</code></span>`
     },
     {
-      n: "5",
-      icon: "✅",
-      title: "Sensor identifizieren",
-      body: `Gehe zu <strong>Sensoren</strong> oben auf dieser Seite, klicke
-        <em>📡 Identifizieren</em> beim Sensor <strong>${esc(sensor.name)}</strong>
-        und bewege dich vor dem Sensor.`
+      icon: "✅", title: "Sensor testen",
+      body: `Klicke oben bei <strong>${esc(sensor.name)}</strong> auf
+        <em>📡 Identifizieren</em> und bewege dich vor dem Sensor –
+        er wird sofort erkannt.`
     },
   ];
 
-  const stepsHtml = steps.map(s => `
+  const stepsHtml = steps.map((s, i) => `
     <div class="prov-step">
-      <div class="prov-step__num">${s.n}</div>
+      <div class="prov-step__num">${i + 1}</div>
       <div class="prov-step__body">
         <div class="prov-step__title">${s.icon} ${s.title}</div>
         <div class="prov-step__text">${s.body}</div>
@@ -349,17 +274,15 @@ function _buildProvGuide(sensor, roomName) {
     </div>
     <div class="prov-steps">${stepsHtml}</div>
     <div class="prov-reset-hint">
-      <strong>Zurücksetzen:</strong> BOOT-Taste (GPIO&nbsp;0) beim Start
-      3&nbsp;Sekunden halten → alle gespeicherten Daten gelöscht →
-      Hotspot öffnet sich erneut.
+      <strong>Zurücksetzen:</strong> BOOT-Taste (GPIO&nbsp;0) beim Einschalten
+      3&nbsp;Sekunden halten → gespeicherte Daten werden gelöscht → Hotspot öffnet sich erneut.
     </div>`;
 }
 
 // ---------------------------------------------------------------------------
 // Software-Update
 // ---------------------------------------------------------------------------
-
-let _updateEs  = null;   // EventSource
+let _updateEs  = null;
 let _updatePct = 0;
 
 function _initUpdate() {
@@ -368,9 +291,9 @@ function _initUpdate() {
 }
 
 async function _checkUpdate() {
-  const btn     = document.getElementById("btn-check-update");
-  const infoEl  = document.getElementById("update-version-info");
-  const actEl   = document.getElementById("update-actions");
+  const btn    = document.getElementById("btn-check-update");
+  const infoEl = document.getElementById("update-version-info");
+  const actEl  = document.getElementById("update-actions");
 
   btn.disabled    = true;
   btn.textContent = "🔍 Prüfe …";
@@ -391,81 +314,60 @@ function _renderVersionInfo(s) {
   const infoEl = document.getElementById("update-version-info");
   const actEl  = document.getElementById("update-actions");
 
-  const curVersion = s.current.version ? `<strong style="color:var(--text)">v${esc(s.current.version)}</strong> &nbsp;` : "";
-  const curHtml = `
+  const curVersion = s.current.version
+    ? `<strong style="color:var(--text)">v${esc(s.current.version)}</strong> &nbsp;` : "";
+  infoEl.innerHTML = `
     <div style="font-size:.82rem;color:var(--muted)">
       <span style="color:var(--text);font-weight:600">Installiert:</span>
       ${curVersion}<code style="background:var(--border);border-radius:3px;padding:1px 5px">${esc(s.current.hash)}</code>
-      ${esc(s.current.date)}
-      &nbsp;·&nbsp; ${esc(s.current.message)}
-    </div>`;
+      ${esc(s.current.date)} · ${esc(s.current.message)}
+    </div>` +
+    (s.fetch_ok ? `
+    <div style="font-size:.82rem;color:var(--muted);margin-top:4px">
+      <span style="color:var(--text);font-weight:600">GitHub:</span>
+      ${s.latest.version ? `<strong style="color:${s.update_available ? '#22c55e' : 'var(--text)'}">v${esc(s.latest.version)}</strong> &nbsp;` : ""}
+      <code style="background:var(--border);border-radius:3px;padding:1px 5px">${esc(s.latest.hash)}</code>
+      ${esc(s.latest.date)} · ${esc(s.latest.message)}
+    </div>` : `<p style="color:var(--yellow);font-size:.82rem;margin-top:4px">⚠ GitHub nicht erreichbar</p>`) +
+    (s.new_commits?.length ? `
+    <div style="margin-top:10px;padding:10px;background:var(--border);border-radius:6px;
+                font-size:.78rem;font-family:monospace">
+      ${s.new_commits.map(c => `<div>↓ ${esc(c)}</div>`).join("")}
+    </div>` : "");
 
-  let latestHtml = "";
-  if (s.fetch_ok) {
-    const remVersion = s.latest.version ? `<strong style="color:${s.update_available ? '#22c55e' : 'var(--text)'}">v${esc(s.latest.version)}</strong> &nbsp;` : "";
-    latestHtml = `
-      <div style="font-size:.82rem;color:var(--muted);margin-top:4px">
-        <span style="color:var(--text);font-weight:600">GitHub:</span>
-        ${remVersion}<code style="background:var(--border);border-radius:3px;padding:1px 5px">${esc(s.latest.hash)}</code>
-        ${esc(s.latest.date)}
-        &nbsp;·&nbsp; ${esc(s.latest.message)}
-      </div>`;
-  } else {
-    latestHtml = `<p style="color:var(--yellow);font-size:.82rem;margin-top:4px">
-      ⚠ GitHub nicht erreichbar – Version konnte nicht abgerufen werden.</p>`;
-  }
-
-  let commitsHtml = "";
-  if (s.new_commits && s.new_commits.length > 0) {
-    commitsHtml = `
-      <div style="margin-top:10px;padding:10px;background:var(--border);
-                  border-radius:6px;font-size:.78rem;font-family:monospace">
-        ${s.new_commits.map(c => `<div>↓ ${esc(c)}</div>`).join("")}
-      </div>`;
-  }
-
-  infoEl.innerHTML = curHtml + latestHtml + commitsHtml;
-
-  // Aktions-Buttons aktualisieren
   if (s.update_available) {
     actEl.innerHTML = `
       <button id="btn-check-update" class="btn-secondary">🔍 Erneut prüfen</button>
       <button id="btn-install-update" class="btn-mark" style="background:#15803d">
         ⬇ Update installieren (${s.behind_by} Commit${s.behind_by > 1 ? "s" : ""})
       </button>`;
-    document.getElementById("btn-check-update")
-      ?.addEventListener("click", _checkUpdate);
-    document.getElementById("btn-install-update")
-      ?.addEventListener("click", _startUpdate);
+    document.getElementById("btn-check-update")?.addEventListener("click", _checkUpdate);
+    document.getElementById("btn-install-update")?.addEventListener("click", _startUpdate);
   } else if (s.fetch_ok) {
     actEl.innerHTML = `
       <button id="btn-check-update" class="btn-secondary">🔍 Erneut prüfen</button>
-      <span style="color:var(--green);font-size:.875rem">✓ Aktuell – kein Update verfügbar</span>`;
-    document.getElementById("btn-check-update")
-      ?.addEventListener("click", _checkUpdate);
+      <span style="color:var(--green);font-size:.875rem">✓ Aktuell</span>`;
+    document.getElementById("btn-check-update")?.addEventListener("click", _checkUpdate);
   } else {
     actEl.innerHTML = `<button id="btn-check-update" class="btn-secondary">🔍 Erneut prüfen</button>`;
-    document.getElementById("btn-check-update")
-      ?.addEventListener("click", _checkUpdate);
+    document.getElementById("btn-check-update")?.addEventListener("click", _checkUpdate);
   }
 }
 
 async function _startUpdate() {
-  // UI in Update-Modus schalten
-  const actEl     = document.getElementById("update-actions");
-  const progEl    = document.getElementById("update-progress");
-  const resultEl  = document.getElementById("update-result");
-  const logEl     = document.getElementById("update-log");
-  const barEl     = document.getElementById("update-bar");
+  const actEl   = document.getElementById("update-actions");
+  const progEl  = document.getElementById("update-progress");
+  const resultEl = document.getElementById("update-result");
+  const logEl   = document.getElementById("update-log");
+  const barEl   = document.getElementById("update-bar");
 
   actEl.innerHTML = `<span class="muted" style="font-size:.875rem">Update läuft …</span>`;
-  progEl.style.display  = "block";
+  progEl.style.display   = "block";
   resultEl.style.display = "none";
   logEl.innerHTML = "";
   barEl.style.width = "0%";
   _updatePct = 0;
 
-  // Update starten
   try {
     await apiFetch("/api/update/start", { method: "POST" });
   } catch (e) {
@@ -473,7 +375,6 @@ async function _startUpdate() {
     return;
   }
 
-  // SSE-Stream öffnen
   if (_updateEs) _updateEs.close();
   _updateEs = new EventSource("/api/update/stream");
 
@@ -481,51 +382,31 @@ async function _startUpdate() {
     if (!ev.data || ev.data.startsWith(":")) return;
     try {
       const d = JSON.parse(ev.data);
-
-      if (d.level === "phase") {
-        _updateEs.close();
-        _handlePhase(d.msg);
-        return;
-      }
-
+      if (d.level === "phase") { _updateEs.close(); _handlePhase(d.msg); return; }
       if (d.pct >= 0) {
         _updatePct = d.pct;
-        barEl.style.width = d.pct + "%";
-        // Farbe: blau während läuft, grün bei 100%
+        barEl.style.width      = d.pct + "%";
         barEl.style.background = d.pct >= 100 ? "#15803d" : "#3b82f6";
       }
-
       _appendLog(d.level, d.msg);
     } catch (_) {}
   };
 
   _updateEs.onerror = () => {
     _updateEs.close();
-    // Verbindungsabbruch = entweder Fehler oder Neustart (erwünscht)
-    if (_updatePct >= 88) {
-      _handlePhase("restarting");
-    } else {
-      _appendLog("error", "Verbindung unterbrochen (pct=" + _updatePct + ")");
-      _handlePhase("failed");
-    }
+    if (_updatePct >= 88) _handlePhase("restarting");
+    else { _appendLog("error", "Verbindung unterbrochen"); _handlePhase("failed"); }
   };
 }
 
 function _appendLog(level, msg) {
   const logEl = document.getElementById("update-log");
   if (!logEl) return;
-  const colors = {
-    ok:    "#22c55e",
-    error: "#ef4444",
-    warn:  "#f59e0b",
-    info:  "#94a3b8",
-    phase: "#818cf8",
-  };
-  const color = colors[level] || "#94a3b8";
-  const icon  = { ok: "✓", error: "✗", warn: "⚠", info: "→", phase: "●" }[level] || "·";
-  const div   = document.createElement("div");
-  div.style.color = color;
-  div.textContent = `${icon} ${msg}`;
+  const colors = { ok:"#22c55e", error:"#ef4444", warn:"#f59e0b", info:"#94a3b8", phase:"#818cf8" };
+  const icons  = { ok:"✓", error:"✗", warn:"⚠", info:"→", phase:"●" };
+  const div = document.createElement("div");
+  div.style.color = colors[level] || "#94a3b8";
+  div.textContent = `${icons[level] || "·"} ${msg}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -536,33 +417,26 @@ function _handlePhase(phase) {
   const barEl    = document.getElementById("update-bar");
 
   if (phase === "restarting") {
-    barEl.style.width      = "95%";
-    barEl.style.background = "#8b5cf6";
-    _appendLog("info", "Server wird neu gestartet – warte auf Verbindung …");
+    barEl.style.width = "95%"; barEl.style.background = "#8b5cf6";
+    _appendLog("info", "Server wird neu gestartet …");
     resultEl.style.display = "none";
     _pollUntilAlive();
     return;
   }
-
   if (phase === "done") {
-    barEl.style.width      = "100%";
-    barEl.style.background = "#15803d";
+    barEl.style.width = "100%"; barEl.style.background = "#15803d";
     resultEl.style.display = "block";
     resultEl.innerHTML = `
       <div style="background:#052e16;border:1px solid #22c55e;border-radius:6px;padding:12px 16px">
         <div style="font-weight:700;color:#22c55e;margin-bottom:6px">✓ Update erfolgreich</div>
-        <button onclick="location.reload()" class="btn-mark"
-          style="background:#15803d;margin-top:8px;font-size:.85rem">
+        <button onclick="location.reload()" class="btn-mark" style="background:#15803d;font-size:.85rem">
           Seite neu laden
         </button>
       </div>`;
     actEl.innerHTML = `<button id="btn-check-update" class="btn-secondary">🔍 Erneut prüfen</button>`;
     document.getElementById("btn-check-update")?.addEventListener("click", _checkUpdate);
-    // Neustart-Hint ausblenden falls noch sichtbar
-    apiFetch("/api/update/cancel", { method: "POST" }).catch(() => {});
     return;
   }
-
   if (phase === "failed") {
     barEl.style.background = "#dc2626";
     resultEl.style.display = "block";
@@ -571,8 +445,7 @@ function _handlePhase(phase) {
         <div style="font-weight:700;color:#ef4444;margin-bottom:6px">✗ Update fehlgeschlagen – Rollback durchgeführt</div>
         <div style="font-size:.82rem;color:var(--muted)">
           Die vorherige Version wurde wiederhergestellt.<br>
-          Bitte prüfe den Log oben und starte den Dienst ggf. neu:<br>
-          <code style="color:#fca5a5">sudo systemctl restart hausradar</code>
+          Bitte starte den Dienst neu: <code style="color:#fca5a5">sudo systemctl restart hausradar</code>
         </div>
       </div>`;
     actEl.innerHTML = `<button id="btn-check-update" class="btn-secondary">🔍 Erneut prüfen</button>`;
@@ -582,63 +455,38 @@ function _handlePhase(phase) {
 }
 
 function _pollUntilAlive() {
-  const logEl   = document.getElementById("update-log");
-  const barEl   = document.getElementById("update-bar");
+  const logEl    = document.getElementById("update-log");
+  const barEl    = document.getElementById("update-bar");
   const resultEl = document.getElementById("update-result");
-  const actEl   = document.getElementById("update-actions");
-
+  const actEl    = document.getElementById("update-actions");
   let tries = 0;
-  const MAX  = 40;   // 40 × 2 s = 80 s Timeout
 
-  const interval = setInterval(async () => {
+  const iv = setInterval(async () => {
     tries++;
     try {
       const h = await apiFetch("/api/health");
-      clearInterval(interval);
-      barEl.style.width      = "100%";
-      barEl.style.background = "#15803d";
-      if (logEl) {
-        const div = document.createElement("div");
-        div.style.color = "#22c55e";
-        div.textContent = `✓ Server neu gestartet (${tries * 2}s) – Update abgeschlossen`;
-        logEl.appendChild(div);
-        logEl.scrollTop = logEl.scrollHeight;
-      }
+      clearInterval(iv);
+      barEl.style.width = "100%"; barEl.style.background = "#15803d";
+      _appendLog("ok", `Server neu gestartet (${tries * 2}s) – Update abgeschlossen`);
       resultEl.style.display = "block";
       resultEl.innerHTML = `
         <div style="background:#052e16;border:1px solid #22c55e;border-radius:6px;padding:12px 16px">
           <div style="font-weight:700;color:#22c55e;margin-bottom:4px">✓ Update erfolgreich installiert</div>
-          <div style="font-size:.82rem;color:var(--muted)">Server läuft wieder · Uptime ${h.uptime_s}s</div>
-          <button onclick="location.reload()" class="btn-mark"
-            style="background:#15803d;margin-top:10px;font-size:.85rem">
+          <button onclick="location.reload()" class="btn-mark" style="background:#15803d;font-size:.85rem">
             Seite neu laden
           </button>
         </div>`;
       actEl.innerHTML = `<button id="btn-check-update" class="btn-secondary">🔍 Erneut prüfen</button>`;
       document.getElementById("btn-check-update")?.addEventListener("click", _checkUpdate);
-    } catch (_) {
-      // Server noch nicht da
-      if (logEl) {
-        // Puls-Punkt updaten statt viele Zeilen
-        let dot = logEl.querySelector(".restart-dot");
-        if (!dot) {
-          dot = document.createElement("div");
-          dot.className    = "restart-dot";
-          dot.style.color  = "#8b5cf6";
-          logEl.appendChild(dot);
-        }
-        dot.textContent = `● Warte auf Server … (${tries * 2}s)`;
-        logEl.scrollTop = logEl.scrollHeight;
+    } catch {
+      let dot = logEl?.querySelector(".restart-dot");
+      if (!dot && logEl) {
+        dot = document.createElement("div");
+        dot.className = "restart-dot"; dot.style.color = "#8b5cf6";
+        logEl.appendChild(dot);
       }
-      if (tries >= MAX) {
-        clearInterval(interval);
-        if (logEl) {
-          const div = document.createElement("div");
-          div.style.color = "#f59e0b";
-          div.textContent = "⚠ Timeout – Seite bitte manuell neu laden";
-          logEl.appendChild(div);
-        }
-      }
+      if (dot) { dot.textContent = `● Warte auf Server … (${tries * 2}s)`; logEl.scrollTop = logEl.scrollHeight; }
+      if (tries >= 40) { clearInterval(iv); _appendLog("warn", "Timeout – bitte Seite manuell neu laden"); }
     }
   }, 2000);
 }
@@ -646,22 +494,20 @@ function _pollUntilAlive() {
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
-
 document.addEventListener("DOMContentLoaded", () => {
   initSettings();
   _initUpdate();
 
-  // Delegierter Click-Handler für ⎘ Kopieren-Buttons im Provisioning-Guide
+  // Delegierter Click-Handler für ⎘ Kopieren-Buttons
   document.getElementById("provisioning-section")
     ?.addEventListener("click", e => {
       const btn = e.target.closest(".btn-copy");
       if (!btn) return;
-      const text = btn.dataset.copy || "";
-      navigator.clipboard.writeText(text).then(() => {
+      navigator.clipboard.writeText(btn.dataset.copy || "").then(() => {
         const orig = btn.textContent;
-        btn.textContent = "✓";
+        btn.textContent = "✓ Kopiert";
         btn.style.color = "var(--green)";
-        setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1200);
+        setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1500);
       }).catch(() => {});
     });
 });

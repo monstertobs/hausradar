@@ -545,6 +545,48 @@ main {
 .fp-legend-recent  { background: #1c1305; border-color: #ca8a04; }
 .fp-legend-offline { background: #1c0505; border-color: #ef4444; }
 
+/* ===== Raumstatus-Leiste (index.html) ===== */
+.room-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.room-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: .82rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition: opacity .3s;
+}
+
+.room-pill__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.room-pill__label {
+  font-size: .74rem;
+  font-weight: 400;
+  opacity: .8;
+}
+
+.room-pill--idle    { background: #111827; border-color: #2d3a50; color: #60a5fa; }
+.room-pill--idle    .room-pill__dot { background: #374151; }
+.room-pill--active  { background: #052e16; border-color: #15803d; color: #4ade80; }
+.room-pill--active  .room-pill__dot { background: #22c55e; }
+.room-pill--recent  { background: #1c1305; border-color: #92400e; color: var(--yellow); }
+.room-pill--recent  .room-pill__dot { background: var(--yellow); }
+.room-pill--offline { background: #1c0505; border-color: #7f1d1d; color: #f87171; }
+.room-pill--offline .room-pill__dot { background: var(--red); }
+
 /* ===== Profile-Filter ===== */
 .profile-filters {
   display: flex;
@@ -745,6 +787,26 @@ main {
   cursor: pointer;
 }
 .prov-select:focus { outline: 2px solid var(--accent); }
+
+.code-block {
+  display: block;
+  background: #0a0d14;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 12px;
+  font-family: monospace;
+  font-size: .8rem;
+  color: #93c5fd;
+  margin: 6px 0;
+  white-space: pre;
+}
+
+.prov-ssid {
+  display: inline-block;
+  margin: 6px 0;
+  font-size: 1rem;
+  color: var(--text);
+}
 
 .prov-guide-header {
   font-size: .875rem;

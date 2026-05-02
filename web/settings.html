@@ -10,7 +10,7 @@
   <header class="topbar">
     <h1 class="logo">&#x1F4E1; HausRadar</h1>
     <nav>
-      <a href="index.html">Übersicht</a>
+      <a href="index.html">Live</a>
       <a href="profiles.html">Analyse</a>
       <a href="settings.html" class="active">Einstellungen</a>
       <a href="calibrate.html">Kalibrierung</a>
@@ -21,32 +21,15 @@
   <main>
 
     <!-- ------------------------------------------------------------------ -->
-    <!-- System-Status                                                        -->
+    <!-- Sensor-Status                                                        -->
     <!-- ------------------------------------------------------------------ -->
     <section class="card">
-      <h2>SYSTEM-STATUS</h2>
-      <div id="health-grid" class="health-grid">
-        <p class="muted">Lade …</p>
+      <div class="card-header-row">
+        <h2>Sensoren</h2>
+        <span id="sensors-summary" class="muted" style="font-size:.85rem"></span>
       </div>
-    </section>
-
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Räume                                                                -->
-    <!-- ------------------------------------------------------------------ -->
-    <section class="card">
-      <h2>RÄUME</h2>
-      <div id="settings-rooms" class="room-grid">
-        <p class="muted">Lade Räume …</p>
-      </div>
-    </section>
-
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Sensoren                                                             -->
-    <!-- ------------------------------------------------------------------ -->
-    <section class="card">
-      <h2>SENSOREN</h2>
       <div id="settings-sensors" class="sensor-grid">
-        <p class="muted">Lade Sensoren …</p>
+        <p class="muted">Lade …</p>
       </div>
     </section>
 
@@ -54,15 +37,18 @@
     <!-- Neuen Sensor einrichten                                             -->
     <!-- ------------------------------------------------------------------ -->
     <section class="card" id="provisioning-section">
-      <h2>NEUEN SENSOR EINRICHTEN</h2>
-      <div id="prov-sensor-select" style="margin-bottom:16px">
-        <label style="font-size:.875rem;color:var(--muted);display:block;margin-bottom:6px">
-          Für welchen Raum soll der neue Sensor eingerichtet werden?
-        </label>
+      <h2>Neuen Sensor einrichten</h2>
+      <p class="muted" style="margin-bottom:18px">
+        Wähle für welchen Raum du einen neuen ESP32-Sensor einrichten möchtest.
+        Die Anleitung führt dich Schritt für Schritt durch Flash, WLAN-Einrichtung und Test.
+      </p>
+
+      <div style="margin-bottom:16px">
         <select id="prov-sensor-id" class="prov-select">
-          <option value="">-- Sensor wählen --</option>
+          <option value="">— Sensor wählen —</option>
         </select>
       </div>
+
       <div id="prov-guide" style="display:none"></div>
     </section>
 
@@ -70,49 +56,40 @@
     <!-- Software-Update                                                      -->
     <!-- ------------------------------------------------------------------ -->
     <section class="card" id="update-section">
-      <h2>SOFTWARE-UPDATE</h2>
+      <h2>Software-Update</h2>
 
-      <!-- Versions-Info -->
       <div id="update-version-info" style="margin-bottom:16px">
         <p class="muted">Klicke „Auf Updates prüfen" um den Stand mit GitHub zu vergleichen.</p>
       </div>
 
-      <!-- Aktions-Buttons -->
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" id="update-actions">
         <button id="btn-check-update" class="btn-secondary">
           🔍 Auf Updates prüfen
         </button>
       </div>
 
-      <!-- Fortschritt -->
       <div id="update-progress" style="display:none;margin-top:20px">
-        <!-- Fortschrittsbalken -->
         <div style="background:var(--border);border-radius:4px;height:8px;margin-bottom:12px;overflow:hidden">
           <div id="update-bar" style="height:100%;width:0%;background:#3b82f6;
                border-radius:4px;transition:width .4s ease"></div>
         </div>
-        <!-- Log-Ausgabe -->
         <div id="update-log" style="
           background:#0a0d14;border:1px solid var(--border);border-radius:6px;
           padding:12px;font-family:monospace;font-size:.78rem;
           max-height:260px;overflow-y:auto;line-height:1.6"></div>
       </div>
 
-      <!-- Ergebnis -->
       <div id="update-result" style="display:none;margin-top:16px"></div>
     </section>
 
     <!-- ------------------------------------------------------------------ -->
-    <!-- Ressourcen                                                           -->
+    <!-- System-Info                                                          -->
     <!-- ------------------------------------------------------------------ -->
     <section class="card">
-      <h2>RESSOURCEN</h2>
-      <ul class="resources-list">
-        <li><a href="/api/health" target="_blank">API Health-Check</a></li>
-        <li><a href="/api/rooms" target="_blank">Konfiguration: Räume (JSON)</a></li>
-        <li><a href="/api/sensors" target="_blank">Konfiguration: Sensoren (JSON)</a></li>
-        <li><a href="/api/history/sessions?limit=20" target="_blank">Letzte Sitzungen (JSON)</a></li>
-      </ul>
+      <h2>System</h2>
+      <div id="health-grid" class="health-grid">
+        <p class="muted">Lade …</p>
+      </div>
     </section>
 
   </main>
