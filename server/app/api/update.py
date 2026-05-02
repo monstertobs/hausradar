@@ -324,19 +324,28 @@ def _do_update():
     with _lock:
         _state["phase"] = "restarting"
 
-    restart = subprocess.run(
-        ["sudo", "-n", "/usr/bin/systemctl", "restart", SERVICE_NAME],
-        capture_output=True, text=True,
-        timeout=30,
-    )
-    if restart.returncode != 0:
-        # Kein Sudo-Recht oder anderer Fehler → als done markieren, manueller Neustart
+    try:
+        restart = subprocess.run(
+            ["sudo", "-n", "/usr/bin/systemctl", "restart", SERVICE_NAME],
+            capture_output=True, text=True,
+            timeout=30,
+        )
+        rc = restart.returncode
+    except Exception as exc:
+        # Prozess wurde durch SIGTERM beendet bevor subprocess zurückkehren konnte
+        rc = -15
+
+    # rc == 0     → systemctl hat Neustart angestoßen (Prozess wird gleich beendet)
+    # rc == -15   → SIGTERM: systemd hat diesen Prozess bereits beendet → Neustart läuft
+    # rc < 0      → sonstiger Signal-Kill → ebenfalls als Neustart werten
+    # rc > 0      → echter Fehler (z.B. kein sudo-Recht)
+    if rc > 0:
         err = (restart.stderr or restart.stdout or "").strip()
-        _emit("warn", f"Neustart fehlgeschlagen (exit {restart.returncode}): {err or 'kein Fehlertext'}", -1)
+        _emit("warn", f"Neustart fehlgeschlagen (exit {rc}): {err or 'kein Fehlertext'}", -1)
         _emit("warn", f"Bitte manuell: sudo systemctl restart {SERVICE_NAME}", -1)
         with _lock:
             _state["phase"] = "done"
-    # Wenn Neustart klappt: dieser Prozess wird durch systemd beendet.
+    # rc <= 0: Neustart läuft – dieser Prozess wird gleich durch systemd beendet.
     # Der Browser erkennt den Verbindungsabbruch und fragt per /api/health ab.
 
 
