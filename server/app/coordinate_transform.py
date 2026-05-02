@@ -95,11 +95,30 @@ def transform_room_to_floorplan(room_config: dict,
 def is_target_inside_room(room_config: dict,
                           room_x_mm: float,
                           room_y_mm: float) -> bool:
-    """Gibt True zurück, wenn der Punkt innerhalb der Raumgrenzen liegt."""
+    """Gibt True zurück, wenn der Punkt innerhalb der Raumgrenzen liegt.
+
+    Bei Räumen mit shape_points (Polygon) wird ein Ray-Casting-Test
+    verwendet. Für rechteckige Räume genügt der Bounding-Box-Test.
+    """
+    shape = room_config.get("shape_points")
+    if shape and len(shape) >= 3:
+        return _point_in_polygon(room_x_mm, room_y_mm, shape)
     return (
         0.0 <= room_x_mm <= room_config["width_mm"]
         and 0.0 <= room_y_mm <= room_config["height_mm"]
     )
+
+
+def _point_in_polygon(x: float, y: float, polygon: list) -> bool:
+    """Ray-Casting-Test: Punkt (x, y) in Polygon (Liste von [x, y]-Paaren)."""
+    n = len(polygon)
+    inside = False
+    px, py = polygon[-1]
+    for qx, qy in polygon:
+        if ((qy > y) != (py > y)) and (x < (px - qx) * (y - qy) / (py - qy) + qx):
+            inside = not inside
+        px, py = qx, qy
+    return inside
 
 
 def detect_zone(room_config: dict,

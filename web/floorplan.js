@@ -212,8 +212,21 @@ class Floorplan {
       const wPx    = d.wMm * scX;
       const hPx    = d.hMm * scY;
 
-      const newFx = Math.max(fp.x, Math.min(fp.x + fp.width  - wPx, origFx + dx));
-      const newFy = Math.max(fp.y, Math.min(fp.y + fp.height - hPx, origFy + dy));
+      // Visuelle Bounding-Box des gedrehten Möbels berechnen
+      // (bei 90°/270° sind Breite und Höhe vertauscht)
+      const rotRad = (parseFloat(d.el.dataset.rotDeg) || 0) * Math.PI / 180;
+      const cosA   = Math.abs(Math.cos(rotRad));
+      const sinA   = Math.abs(Math.sin(rotRad));
+      const visW   = wPx * cosA + hPx * sinA;
+      const visH   = wPx * sinA + hPx * cosA;
+
+      // Zentrum constrained halten, sodass visuelle Box im Raum bleibt
+      const origCx = origFx + wPx / 2;
+      const origCy = origFy + hPx / 2;
+      const newCx  = Math.max(fp.x + visW / 2, Math.min(fp.x + fp.width  - visW / 2, origCx + dx));
+      const newCy  = Math.max(fp.y + visH / 2, Math.min(fp.y + fp.height - visH / 2, origCy + dy));
+      const newFx  = newCx - wPx / 2;
+      const newFy  = newCy - hPx / 2;
 
       const rect = d.el.querySelector("rect");
       const text = d.el.querySelector("text");
