@@ -2249,14 +2249,14 @@ async function loadDoorSuggestions() {
               <span style="font-size:.78rem;color:${confCol}">
                 ${conf}% sicher (${s.exit_count}×)
               </span>
-              <button class="btn-mark"
+              <button class="btn-mark door-confirm-btn"
                 style="font-size:.78rem;padding:4px 10px;background:#15803d"
-                onclick="confirmDoor(${i})">
+                data-door-index="${i}">
                 ✓ Hinzufügen
               </button>
-              <button class="btn-secondary"
+              <button class="btn-secondary door-ignore-btn"
                 style="font-size:.78rem;padding:4px 8px"
-                onclick="ignoreDoor(${i})">
+                data-door-index="${i}">
                 ✕
               </button>
             </div>
@@ -2271,6 +2271,14 @@ async function loadDoorSuggestions() {
 
     // Kandidaten-Daten für Confirm merken
     window._doorSuggestions = suggestions;
+
+    // Event-Listener nach dem Rendern setzen (kein inline-onclick wg. CSP)
+    body.querySelectorAll(".door-confirm-btn").forEach(btn => {
+      btn.addEventListener("click", () => confirmDoor(Number(btn.dataset.doorIndex)));
+    });
+    body.querySelectorAll(".door-ignore-btn").forEach(btn => {
+      btn.addEventListener("click", () => ignoreDoor(Number(btn.dataset.doorIndex)));
+    });
 
   } catch (e) {
     if (body) body.innerHTML =
