@@ -556,8 +556,11 @@ class Floorplan {
       g.appendChild(furnG);
     }
 
-    // Zonen
+    // Zonen – Zonen mit gleicher ID wie ein Möbelstück werden übersprungen
+    // (das Möbel rendert das Objekt bereits visuell; Zonen-Rect würde bei Drehen/Verschieben doppelt erscheinen)
+    const furnIds = new Set((room.furniture || []).map(f => f.id).filter(Boolean));
     for (const zone of (room.zones || [])) {
+      if (furnIds.has(zone.id)) continue;
       const zx = fp.x + zone.x_mm * scX;
       const zy = fp.y + zone.y_mm * scY;
       const zw = zone.width_mm * scX;
