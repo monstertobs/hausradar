@@ -220,37 +220,39 @@ class MqttService:
         """
         Vergleicht aktuelle Tracks mit dem letzten Frame.
         Verschwundene Tracks nahe einer Wand → Exit-Event.
-        Neue Tracks die vorher nicht da waren → Entry-Event.
+        Neue echte Tracks die vorher nicht da waren → Entry-Event.
+
+        Bug-Fix: prev speichert ALLE Tracks (real + Ghost), damit die letzte
+        bekannte Position erhalten bleibt bis der Track komplett verschwindet.
+        Vorher: prev enthielt nur reale Tracks → beim Ghost-Übergang wurde
+        prev geleert → beim endgültigen Verschwinden war prev leer → kein Exit.
         """
         with _prev_lock:
-            prev = _prev_track_ids.get(sensor_id, {})
+            # Alle Tracks (real + Ghost) aus dem letzten Frame
+            prev_all  = _prev_track_ids.get(sensor_id + ":all",  {})
+            # Nur reale Tracks aus dem letzten Frame (für Entry-Erkennung)
+            prev_real = _prev_track_ids.get(sensor_id + ":real", {})
 
-            # Aktuelle echte Track-IDs (keine Ghosts)
-            curr: Dict[int, dict] = {
-                t["track_id"]: t
-                for t in tracked
-                if not t.get("ghost", False)
-            }
+            curr_all  = {t["track_id"]: t for t in tracked}
+            curr_real = {t["track_id"]: t for t in tracked
+                         if not t.get("ghost", False)}
 
-            # Exits: Track war real, ist jetzt komplett weg (auch kein Ghost mehr)
-            all_ids_now = {t["track_id"] for t in tracked}
-            for tid, t in prev.items():
-                if tid not in all_ids_now:
+            # Exits: Track war noch da (real oder Ghost), ist jetzt komplett weg
+            for tid, t in prev_all.items():
+                if tid not in curr_all:
                     door_detector.record_exit(
                         room_id,
                         t["room_x_mm"], t["room_y_mm"],
                         room_w, room_h,
                     )
 
-            # Eintritte: neue echte Tracks die vorher nicht existierten
-            for tid, t in curr.items():
-                if tid not in prev:
-                    door_detector.record_entry(
-                        room_id,
-                        t["room_x_mm"], t["room_y_mm"],
-                    )
+            # Eintritte: neue echte Tracks (vorher weder real noch Ghost)
+            for tid, t in curr_real.items():
+                if tid not in prev_all:
+                    door_detector.record_entry(room_id, t["room_x_mm"], t["room_y_mm"])
 
-            _prev_track_ids[sensor_id] = curr
+            _prev_track_ids[sensor_id + ":all"]  = curr_all
+            _prev_track_ids[sensor_id + ":real"] = curr_real
 
 
 # Globale Singleton-Instanz
