@@ -78,6 +78,7 @@ async function _loadConfig() {
     ]);
     _renderRooms(rooms);
     _renderSensors(sensors, rooms, liveData);
+    _initProvisioning(sensors, rooms);
   } catch {
     document.getElementById("settings-rooms").innerHTML =
       '<p class="muted error-text">Fehler beim Laden der Konfiguration.</p>';
@@ -244,6 +245,114 @@ function identifySensor(sensorId, sensorName) {
     if (statusEl) statusEl.innerHTML =
       `<span style="color:var(--red)">❌ Verbindungsfehler</span>`;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sensor-Einrichtung via WiFi-Provisioning
+// ---------------------------------------------------------------------------
+
+function _initProvisioning(sensors, rooms) {
+  const sel = document.getElementById("prov-sensor-id");
+  const guide = document.getElementById("prov-guide");
+  if (!sel || !guide) return;
+
+  const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.name]));
+
+  // Dropdown befüllen
+  sel.innerHTML = '<option value="">-- Sensor wählen --</option>' +
+    (sensors || []).map(s =>
+      `<option value="${esc(s.id)}">${esc(s.name)} (${esc(roomMap[s.room_id] || s.room_id)})</option>`
+    ).join("");
+
+  sel.addEventListener("change", () => {
+    const sensor = (sensors || []).find(s => s.id === sel.value);
+    if (!sensor) { guide.style.display = "none"; guide.innerHTML = ""; return; }
+    guide.style.display = "block";
+    guide.innerHTML = _buildProvGuide(sensor, roomMap[sensor.room_id] || sensor.room_id);
+  });
+}
+
+function _buildProvGuide(sensor, roomName) {
+  const mqttTopic = `hausradar/sensor/${esc(sensor.id)}/state`;
+  const steps = [
+    {
+      n: "1",
+      icon: "⚡",
+      title: "ESP32 flashen",
+      body: `Flashe die Firmware mit PlatformIO:<br>
+        <code>cd firmware/esp32-ld2450-mqtt<br>
+        pio run -e esp32dev -t upload</code><br>
+        <span class="prov-hint">Beim allerersten Flash noch ohne <code>config.h</code>-Änderungen nötig.</span>`
+    },
+    {
+      n: "2",
+      icon: "📶",
+      title: "WLAN-Hotspot verbinden",
+      body: `Der ESP32 öffnet einen Hotspot namens<br>
+        <strong style="color:var(--text);font-size:1rem">HausRadar-Setup-XXXXXX</strong><br>
+        Verbinde Handy oder Laptop mit diesem WLAN.
+        Ein Browser-Fenster öffnet sich automatisch
+        (Captive Portal) – sonst manuell <strong>192.168.4.1</strong> aufrufen.`
+    },
+    {
+      n: "3",
+      icon: "⚙️",
+      title: "Zugangsdaten eingeben",
+      body: `Im Formular folgende Werte eintragen:
+        <table class="prov-table">
+          <tr><td>WLAN-Name</td><td><em>Dein Heimnetz</em></td></tr>
+          <tr><td>WLAN-Passwort</td><td><em>Dein WLAN-Passwort</em></td></tr>
+          <tr><td>Pi-IP / MQTT-Host</td><td><em>IP des Raspberry Pi</em></td></tr>
+          <tr><td>Sensor-ID</td>
+              <td><code class="prov-id">${esc(sensor.id)}</code>
+                  <button class="btn-copy" data-copy="${esc(sensor.id)}" title="Kopieren">⎘</button>
+              </td></tr>
+          <tr><td>Raum-ID</td>
+              <td><code class="prov-id">${esc(sensor.room_id)}</code>
+                  <button class="btn-copy" data-copy="${esc(sensor.room_id)}" title="Kopieren">⎘</button>
+              </td></tr>
+        </table>`
+    },
+    {
+      n: "4",
+      icon: "💾",
+      title: "Speichern & Neustart",
+      body: `„Speichern" klicken. Der ESP32 startet neu und verbindet sich automatisch mit deinem
+        WLAN und dem MQTT-Broker.<br>
+        <span class="prov-hint">
+          MQTT-Topic: <code>${mqttTopic}</code>
+        </span>`
+    },
+    {
+      n: "5",
+      icon: "✅",
+      title: "Sensor identifizieren",
+      body: `Gehe zu <strong>Sensoren</strong> oben auf dieser Seite, klicke
+        <em>📡 Identifizieren</em> beim Sensor <strong>${esc(sensor.name)}</strong>
+        und bewege dich vor dem Sensor.`
+    },
+  ];
+
+  const stepsHtml = steps.map(s => `
+    <div class="prov-step">
+      <div class="prov-step__num">${s.n}</div>
+      <div class="prov-step__body">
+        <div class="prov-step__title">${s.icon} ${s.title}</div>
+        <div class="prov-step__text">${s.body}</div>
+      </div>
+    </div>`).join("");
+
+  return `
+    <div class="prov-guide-header">
+      Anleitung für <strong>${esc(sensor.name)}</strong>
+      &nbsp;·&nbsp; Raum: <strong>${esc(roomName)}</strong>
+    </div>
+    <div class="prov-steps">${stepsHtml}</div>
+    <div class="prov-reset-hint">
+      <strong>Zurücksetzen:</strong> BOOT-Taste (GPIO&nbsp;0) beim Start
+      3&nbsp;Sekunden halten → alle gespeicherten Daten gelöscht →
+      Hotspot öffnet sich erneut.
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -541,4 +650,18 @@ function _pollUntilAlive() {
 document.addEventListener("DOMContentLoaded", () => {
   initSettings();
   _initUpdate();
+
+  // Delegierter Click-Handler für ⎘ Kopieren-Buttons im Provisioning-Guide
+  document.getElementById("provisioning-section")
+    ?.addEventListener("click", e => {
+      const btn = e.target.closest(".btn-copy");
+      if (!btn) return;
+      const text = btn.dataset.copy || "";
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = "✓";
+        btn.style.color = "var(--green)";
+        setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1200);
+      }).catch(() => {});
+    });
 });

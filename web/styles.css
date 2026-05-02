@@ -733,6 +733,111 @@ main {
 
 .error-text { color: var(--red); }
 
+/* ===== Provisioning Guide ===== */
+.prov-select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  font-size: .9rem;
+  min-width: 260px;
+  cursor: pointer;
+}
+.prov-select:focus { outline: 2px solid var(--accent); }
+
+.prov-guide-header {
+  font-size: .875rem;
+  color: var(--muted);
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.prov-steps { display: flex; flex-direction: column; gap: 14px; }
+
+.prov-step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.prov-step__num {
+  flex-shrink: 0;
+  width: 28px; height: 28px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .85rem;
+  margin-top: 2px;
+}
+
+.prov-step__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: .95rem;
+}
+
+.prov-step__text {
+  font-size: .845rem;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.prov-table {
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: .82rem;
+}
+.prov-table td {
+  padding: 3px 10px 3px 0;
+  vertical-align: middle;
+}
+.prov-table td:first-child {
+  color: var(--muted);
+  min-width: 140px;
+}
+
+.prov-id {
+  background: var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: .82rem;
+  color: var(--text);
+}
+
+.btn-copy {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: .75rem;
+  padding: 1px 5px;
+  margin-left: 4px;
+  transition: color .15s, border-color .15s;
+}
+.btn-copy:hover { color: var(--accent); border-color: var(--accent); }
+
+.prov-hint {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: .78rem;
+  color: var(--muted);
+}
+
+.prov-reset-hint {
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: #1c1a0a;
+  border: 1px solid #4a3a0a;
+  border-radius: 6px;
+  font-size: .82rem;
+  color: var(--yellow);
+  line-height: 1.6;
+}
+
 /* ===== Türen im Grundriss ===== */
 .door-gap    { fill: #0a0d14; }   /* Hintergrundfarbe – überdeckt Wandlinie */
 .door-symbol {
