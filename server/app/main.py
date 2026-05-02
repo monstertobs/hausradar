@@ -35,6 +35,19 @@ WEB_DIR  = BASE_DIR / "web"
 # Middleware: Security-HTTP-Header  (HR-SEC-007)
 # ---------------------------------------------------------------------------
 
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    """Setzt Cache-Control: no-cache für JS/CSS-Dateien damit Browser-Updates
+    sofort wirksam werden (Browser prüft immer via ETag/Last-Modified)."""
+    _NOCACHE_EXTS = {".js", ".css"}
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if any(path.endswith(ext) for ext in self._NOCACHE_EXTS):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -163,6 +176,7 @@ app = FastAPI(title="HausRadar", version=__version__, lifespan=lifespan)
 
 # Reihenfolge: äußerste Middleware zuerst hinzufügen
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(NoCacheStaticMiddleware)
 app.add_middleware(ApiKeyMiddleware)
 app.add_middleware(
     BodySizeLimitMiddleware,

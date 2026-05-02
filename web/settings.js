@@ -61,15 +61,18 @@ function _fmt_uptime(s) {
 // Sensoren
 // ---------------------------------------------------------------------------
 async function _loadSensors() {
+  const el = document.getElementById("settings-sensors");
   try {
+    const timeout = ms => new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms));
     const [sensors, rooms, liveData] = await Promise.all([
-      API.sensors(), API.rooms(), API.live().catch(() => null),
+      API.sensors(),
+      API.rooms(),
+      Promise.race([API.live(), timeout(3000)]).catch(() => null),
     ]);
     _renderSensors(sensors, rooms, liveData);
     _initProvisioning(sensors, rooms);
-  } catch {
-    const el = document.getElementById("settings-sensors");
-    if (el) el.innerHTML = '<p class="muted error-text">Fehler beim Laden.</p>';
+  } catch (err) {
+    if (el) el.innerHTML = `<p class="muted error-text">Fehler beim Laden: ${esc(err.message)}</p>`;
   }
 }
 
