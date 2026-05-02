@@ -206,80 +206,137 @@ function _initProvisioning(sensors, rooms) {
       `<option value="${esc(s.id)}">${esc(s.name)} – ${esc(roomMap[s.room_id] || s.room_id)}</option>`
     ).join("");
 
-  sel.addEventListener("change", () => {
+  sel.addEventListener("change", async () => {
     const sensor = (sensors || []).find(s => s.id === sel.value);
     if (!sensor) { guide.style.display = "none"; guide.innerHTML = ""; return; }
+
+    // SSID vom Pi holen (Pi ist im gleichen WLAN wie der Browser)
+    let ssid = "";
+    try {
+      const info = await apiFetch("/api/network/info");
+      ssid = info.ssid || "";
+    } catch {}
+
     guide.style.display = "block";
-    guide.innerHTML = _buildProvGuide(sensor, roomMap[sensor.room_id] || sensor.room_id);
+    guide.innerHTML = _buildProvGuide(
+      sensor,
+      roomMap[sensor.room_id] || sensor.room_id,
+      ssid,
+      window.location.hostname
+    );
+    _bindProvEvents(sensor);
   });
 }
 
-function _buildProvGuide(sensor, roomName) {
-  const mqttTopic = `hausradar/sensor/${esc(sensor.id)}/state`;
-
-  const steps = [
-    {
-      icon: "⚡", title: "Firmware flashen",
-      body: `Verbinde den ESP32 per USB mit deinem Computer und führe aus:<br>
-        <code class="code-block">cd firmware/esp32-ld2450-mqtt<br>pio run -e esp32dev -t upload</code>
-        <span class="prov-hint">Kein Editieren von Dateien nötig.</span>`
-    },
-    {
-      icon: "📶", title: "Mit HausRadar-Hotspot verbinden",
-      body: `Der ESP32 öffnet beim ersten Start automatisch einen WLAN-Hotspot:<br>
-        <strong class="prov-ssid">HausRadar-Setup-XXXXXX</strong><br>
-        Verbinde dein Handy oder deinen Computer mit diesem WLAN.
-        Ein Browser-Fenster öffnet sich automatisch – sonst manuell
-        <strong>192.168.4.1</strong> aufrufen.`
-    },
-    {
-      icon: "📝", title: "Zugangsdaten eingeben",
-      body: `Trage im Formular folgende Werte ein:
-        <table class="prov-table">
-          <tr><td>WLAN-Name</td><td><em>Dein Heimnetzwerk</em></td></tr>
-          <tr><td>WLAN-Passwort</td><td><em>Dein WLAN-Passwort</em></td></tr>
-          <tr><td>Pi-IP / MQTT-Host</td><td><em>IP-Adresse des Raspberry Pi</em></td></tr>
-          <tr><td>Sensor-ID</td>
-              <td><code class="prov-id">${esc(sensor.id)}</code>
-                  <button class="btn-copy" data-copy="${esc(sensor.id)}">⎘ Kopieren</button></td></tr>
-          <tr><td>Raum-ID</td>
-              <td><code class="prov-id">${esc(sensor.room_id)}</code>
-                  <button class="btn-copy" data-copy="${esc(sensor.room_id)}">⎘ Kopieren</button></td></tr>
-        </table>`
-    },
-    {
-      icon: "💾", title: "Speichern – fertig!",
-      body: `„Speichern" klicken. Der ESP32 startet neu, verbindet sich mit deinem WLAN
-        und sendet ab sofort Daten an den Raspberry Pi.<br>
-        <span class="prov-hint">MQTT-Topic: <code>${mqttTopic}</code></span>`
-    },
-    {
-      icon: "✅", title: "Sensor testen",
-      body: `Klicke oben bei <strong>${esc(sensor.name)}</strong> auf
-        <em>📡 Identifizieren</em> und bewege dich vor dem Sensor –
-        er wird sofort erkannt.`
-    },
-  ];
-
-  const stepsHtml = steps.map((s, i) => `
-    <div class="prov-step">
-      <div class="prov-step__num">${i + 1}</div>
-      <div class="prov-step__body">
-        <div class="prov-step__title">${s.icon} ${s.title}</div>
-        <div class="prov-step__text">${s.body}</div>
-      </div>
-    </div>`).join("");
-
+function _buildProvGuide(sensor, roomName, ssid, host) {
   return `
     <div class="prov-guide-header">
-      Anleitung für <strong>${esc(sensor.name)}</strong>
+      Einrichten: <strong>${esc(sensor.name)}</strong>
       &nbsp;·&nbsp; Raum: <strong>${esc(roomName)}</strong>
     </div>
-    <div class="prov-steps">${stepsHtml}</div>
+
+    <p class="muted" style="font-size:.84rem;margin-bottom:14px">
+      Trage hier deine WLAN-Zugangsdaten ein. Alle anderen Felder sind bereits vorausgefüllt.
+      Der QR-Code überträgt alles auf einmal auf den Sensor.
+    </p>
+
+    <div class="prov-prefill">
+      <div class="prov-prefill__row">
+        <label class="prov-prefill__label">WLAN-Name (SSID)</label>
+        <input id="prov-ssid-input" class="prov-prefill__input" type="text"
+               value="${esc(ssid)}" placeholder="Dein Heimnetzwerk" autocomplete="off">
+      </div>
+      <div class="prov-prefill__row">
+        <label class="prov-prefill__label">WLAN-Passwort</label>
+        <input id="prov-pass-input" class="prov-prefill__input" type="password"
+               placeholder="WLAN-Passwort eingeben" autocomplete="off">
+      </div>
+      <div class="prov-prefill__row prov-prefill__row--ro">
+        <span class="prov-prefill__label">Pi-IP (MQTT-Host)</span>
+        <span class="prov-prefill__value"><code>${esc(host)}</code></span>
+      </div>
+      <div class="prov-prefill__row prov-prefill__row--ro">
+        <span class="prov-prefill__label">Sensor-ID</span>
+        <span class="prov-prefill__value"><code>${esc(sensor.id)}</code></span>
+      </div>
+      <div class="prov-prefill__row prov-prefill__row--ro">
+        <span class="prov-prefill__label">Raum-ID</span>
+        <span class="prov-prefill__value"><code>${esc(sensor.room_id)}</code></span>
+      </div>
+    </div>
+
+    <div style="margin-top:18px">
+      <button id="prov-qr-btn" class="btn btn--primary">📱 QR-Code generieren</button>
+    </div>
+    <div id="prov-qr-result" style="display:none;margin-top:20px"></div>
+
+    <div class="prov-steps-compact">
+      <div class="prov-step-compact">
+        <span class="prov-step__num">1</span>
+        <span>Firmware flashen:<br>
+          <code class="code-block">cd firmware/esp32-ld2450-mqtt<br>pio run -e esp32dev -t upload</code>
+        </span>
+      </div>
+      <div class="prov-step-compact">
+        <span class="prov-step__num">2</span>
+        <span>Mit WLAN-Hotspot <strong>HausRadar-Setup-XXXXXX</strong> verbinden</span>
+      </div>
+      <div class="prov-step-compact">
+        <span class="prov-step__num">3</span>
+        <span>QR-Code scannen → Formular öffnet sich vorausgefüllt → nur Passwort fehlt (wenn nicht im QR)</span>
+      </div>
+      <div class="prov-step-compact">
+        <span class="prov-step__num">4</span>
+        <span><strong>Speichern</strong> tippen → ESP32 startet, verbindet, sendet Daten ✅</span>
+      </div>
+    </div>
+
     <div class="prov-reset-hint">
-      <strong>Zurücksetzen:</strong> BOOT-Taste (GPIO&nbsp;0) beim Einschalten
-      3&nbsp;Sekunden halten → gespeicherte Daten werden gelöscht → Hotspot öffnet sich erneut.
+      <strong>Zurücksetzen:</strong> BOOT-Taste (GPIO&nbsp;0) beim Einschalten 3&nbsp;Sekunden halten
+      → Hotspot öffnet sich erneut.
     </div>`;
+}
+
+function _bindProvEvents(sensor) {
+  const btn = document.getElementById("prov-qr-btn");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const ssid = document.getElementById("prov-ssid-input")?.value.trim() || "";
+    const pass = document.getElementById("prov-pass-input")?.value || "";
+    const host = window.location.hostname;
+
+    const params = new URLSearchParams({
+      ssid, pass, host,
+      id:   sensor.id,
+      room: sensor.room_id,
+    });
+    const provUrl = `http://192.168.4.1/?${params.toString()}`;
+    const qrUrl   = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(provUrl)}&size=220x220&margin=10`;
+
+    const result = document.getElementById("prov-qr-result");
+    if (!result) return;
+    result.style.display = "block";
+    result.innerHTML = `
+      <div class="prov-qr-box">
+        <img src="${qrUrl}" width="220" height="220" alt="QR-Code laden…">
+        <div class="prov-qr-info">
+          <p style="margin-bottom:8px">Scanne diesen QR-Code mit dem Handy,
+            <strong>nachdem</strong> du dich mit dem HausRadar-Hotspot verbunden hast.
+            Alle Felder inkl. Passwort sind vorausgefüllt – einfach <em>Speichern</em> tippen.</p>
+          <p class="muted" style="font-size:.73rem;word-break:break-all">${esc(provUrl)}</p>
+          <button class="btn-copy" data-copy="${esc(provUrl)}" style="margin-top:8px">⎘ URL kopieren</button>
+        </div>
+      </div>`;
+
+    result.querySelectorAll(".btn-copy").forEach(b => {
+      b.addEventListener("click", () => {
+        navigator.clipboard?.writeText(b.dataset.copy);
+        const orig = b.textContent;
+        b.textContent = "✓ Kopiert";
+        setTimeout(() => { b.textContent = orig; }, 1500);
+      });
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

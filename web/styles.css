@@ -816,26 +816,6 @@ main {
 }
 .prov-select:focus { outline: 2px solid var(--accent); }
 
-.code-block {
-  display: block;
-  background: #0a0d14;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 8px 12px;
-  font-family: monospace;
-  font-size: .8rem;
-  color: #93c5fd;
-  margin: 6px 0;
-  white-space: pre;
-}
-
-.prov-ssid {
-  display: inline-block;
-  margin: 6px 0;
-  font-size: 1rem;
-  color: var(--text);
-}
-
 .prov-guide-header {
   font-size: .875rem;
   color: var(--muted);
@@ -844,57 +824,105 @@ main {
   border-bottom: 1px solid var(--border);
 }
 
-.prov-steps { display: flex; flex-direction: column; gap: 14px; }
-
-.prov-step {
+/* Pre-fill form */
+.prov-prefill {
   display: flex;
-  gap: 14px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prov-prefill__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.prov-prefill__label {
+  flex: 0 0 160px;
+  font-size: .8rem;
+  color: var(--muted);
+}
+
+.prov-prefill__input {
+  flex: 1;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: .9rem;
+  min-width: 0;
+}
+.prov-prefill__input:focus {
+  outline: 2px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.prov-prefill__row--ro .prov-prefill__value {
+  flex: 1;
+  font-size: .88rem;
+  color: var(--text);
+  opacity: .75;
+}
+
+/* QR code result */
+.prov-qr-box {
+  display: flex;
+  gap: 20px;
   align-items: flex-start;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.prov-qr-box img {
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: #fff;
+}
+.prov-qr-info {
+  font-size: .85rem;
+  line-height: 1.6;
+}
+
+/* Compact step list */
+.prov-steps-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.prov-step-compact {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: .84rem;
+  color: var(--muted);
 }
 
 .prov-step__num {
   flex-shrink: 0;
-  width: 28px; height: 28px;
+  width: 24px; height: 24px;
   background: var(--accent);
   color: #fff;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: .85rem;
-  margin-top: 2px;
+  font-weight: 700; font-size: .8rem;
+  margin-top: 1px;
 }
 
-.prov-step__title {
-  font-weight: 600;
-  margin-bottom: 4px;
-  font-size: .95rem;
-}
-
-.prov-step__text {
-  font-size: .845rem;
-  color: var(--muted);
-  line-height: 1.65;
-}
-
-.prov-table {
-  margin-top: 8px;
-  border-collapse: collapse;
-  font-size: .82rem;
-}
-.prov-table td {
-  padding: 3px 10px 3px 0;
-  vertical-align: middle;
-}
-.prov-table td:first-child {
-  color: var(--muted);
-  min-width: 140px;
-}
-
-.prov-id {
-  background: var(--border);
-  border-radius: 3px;
-  padding: 1px 6px;
-  font-size: .82rem;
-  color: var(--text);
+.code-block {
+  display: block;
+  background: #0a0d14;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 12px;
+  font-family: monospace;
+  font-size: .78rem;
+  color: #93c5fd;
+  margin: 5px 0 0;
+  white-space: pre;
 }
 
 .btn-copy {
@@ -904,21 +932,14 @@ main {
   color: var(--muted);
   cursor: pointer;
   font-size: .75rem;
-  padding: 1px 5px;
+  padding: 2px 7px;
   margin-left: 4px;
   transition: color .15s, border-color .15s;
 }
 .btn-copy:hover { color: var(--accent); border-color: var(--accent); }
 
-.prov-hint {
-  display: inline-block;
-  margin-top: 6px;
-  font-size: .78rem;
-  color: var(--muted);
-}
-
 .prov-reset-hint {
-  margin-top: 16px;
+  margin-top: 18px;
   padding: 10px 14px;
   background: #1c1a0a;
   border: 1px solid #4a3a0a;

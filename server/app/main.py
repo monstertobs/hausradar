@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import subprocess
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -59,7 +60,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'self'; "
             "script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; "
+            "img-src 'self' data: https://api.qrserver.com; "
             "connect-src 'self' ws: wss:; "
             "frame-ancestors 'none'"
         )
@@ -201,6 +202,19 @@ def live(request: Request):
         "sensor_offline_timeout_seconds", 10
     )
     return live_state.build_response(timeout)
+
+
+@app.get("/api/network/info")
+def network_info():
+    """Gibt WLAN-SSID des Pi zurück – für die Provisioning-Vorbereitung."""
+    ssid = ""
+    try:
+        ssid = subprocess.check_output(
+            ["iwgetid", "-r"], timeout=2, stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        pass
+    return {"ssid": ssid}
 
 
 @app.post("/api/config/reload")

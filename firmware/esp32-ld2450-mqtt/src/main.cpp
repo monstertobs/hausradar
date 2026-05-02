@@ -221,7 +221,21 @@ button:active{background:#2563eb}
 <label>MQTT-Benutzername (optional) <input type="text" name="mqtt_user" value="%MQTT_USER%" autocomplete="off"></label>
 <label>MQTT-Passwort (optional) <input type="password" name="mqtt_pass" value="%MQTT_PASS%" autocomplete="off"></label>
 <button type="submit">💾 Speichern &amp; Neustart</button>
-</form></body></html>
+</form>
+<script>
+(function(){
+  var p=new URLSearchParams(location.search);
+  function fill(name,val){if(val){var el=document.querySelector('[name='+name+']');if(el)el.value=val;}}
+  fill('ssid',     p.get('ssid'));
+  fill('wifi_pass',p.get('pass'));
+  fill('mqtt_host',p.get('host'));
+  fill('sensor_id',p.get('id'));
+  fill('room_id',  p.get('room'));
+  fill('mqtt_user',p.get('user'));
+  fill('mqtt_pass',p.get('mpass'));
+})();
+</script>
+</body></html>
 )html";
 
 static const char SAVED_HTML[] PROGMEM = R"html(
