@@ -556,7 +556,7 @@ def get_overview():
     result = []
     for room in rooms:
         rid = room.get("id")
-        result.append({
+        entry = {
             "id":        rid,
             "name":      room.get("name"),
             "width_mm":  room.get("width_mm"),
@@ -565,7 +565,10 @@ def get_overview():
             "doors":     room.get("doors", []),
             "zones":     room.get("zones", []),
             "sensors":   sensor_by_room.get(rid, []),
-        })
+        }
+        if "shape_points" in room:
+            entry["shape_points"] = room["shape_points"]
+        result.append(entry)
 
     return result
 
