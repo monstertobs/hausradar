@@ -2202,13 +2202,87 @@ const _WALL_DE = {
   east:  "Rechte Wand",
 };
 
+// Gibt ein kleines SVG zurück das den Raum als Rechteck zeigt mit der Tür als Lücke
+function _doorPreviewSvg(s, room) {
+  if (!room) return "";
+  const W = 130, H = 90, PAD = 10;
+  const rw = room.width_mm || 4000, rh = room.height_mm || 4000;
+  const scale = Math.min((W - PAD * 2) / rw, (H - PAD * 2) / rh);
+  const sw = rw * scale, sh = rh * scale;
+  const ox = PAD + (W - PAD * 2 - sw) / 2;
+  const oy = PAD + (H - PAD * 2 - sh) / 2;
+
+  const pos = s.position_mm * scale;
+  const dw  = Math.max(s.width_mm * scale, 4);
+  const GAP = 3;
+
+  // Vier Wandlinien als Segmente zeichnen (mit Lücke für die Tür)
+  let walls = "", door = "";
+  switch (s.wall) {
+    case "top":
+      walls = `<line x1="${ox}" y1="${oy}" x2="${ox + pos}" y2="${oy}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox + pos + dw}" y1="${oy}" x2="${ox + sw}" y2="${oy}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy + sh}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy}" x2="${ox}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox + sw}" y1="${oy}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>`;
+      door = `<rect x="${ox + pos}" y="${oy - GAP}" width="${dw}" height="${GAP * 2}" fill="#22d3ee" rx="1"/>`;
+      break;
+    case "bottom":
+      walls = `<line x1="${ox}" y1="${oy + sh}" x2="${ox + pos}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox + pos + dw}" y1="${oy + sh}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy}" x2="${ox + sw}" y2="${oy}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy}" x2="${ox}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox + sw}" y1="${oy}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>`;
+      door = `<rect x="${ox + pos}" y="${oy + sh - GAP}" width="${dw}" height="${GAP * 2}" fill="#22d3ee" rx="1"/>`;
+      break;
+    case "left":
+      walls = `<line x1="${ox}" y1="${oy}" x2="${ox}" y2="${oy + pos}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy + pos + dw}" x2="${ox}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox + sw}" y1="${oy}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy}" x2="${ox + sw}" y2="${oy}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy + sh}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>`;
+      door = `<rect x="${ox - GAP}" y="${oy + pos}" width="${GAP * 2}" height="${dw}" fill="#22d3ee" rx="1"/>`;
+      break;
+    case "right":
+      walls = `<line x1="${ox + sw}" y1="${oy}" x2="${ox + sw}" y2="${oy + pos}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox + sw}" y1="${oy + pos + dw}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy}" x2="${ox}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy}" x2="${ox + sw}" y2="${oy}" stroke="#4a5568" stroke-width="1.5"/>
+               <line x1="${ox}" y1="${oy + sh}" x2="${ox + sw}" y2="${oy + sh}" stroke="#4a5568" stroke-width="1.5"/>`;
+      door = `<rect x="${ox + sw - GAP}" y="${oy + pos}" width="${GAP * 2}" height="${dw}" fill="#22d3ee" rx="1"/>`;
+      break;
+    default:
+      walls = `<rect x="${ox}" y="${oy}" width="${sw}" height="${sh}" fill="none" stroke="#4a5568" stroke-width="1.5"/>`;
+  }
+
+  // Raumname-Label
+  const label = (room.name || "").length > 10
+    ? (room.name || "").slice(0, 10) + "…"
+    : (room.name || "");
+
+  return `<svg width="${W}" height="${H}"
+    style="flex-shrink:0;border-radius:6px;background:#0a0d14;border:1px solid var(--border)">
+    <rect x="${ox}" y="${oy}" width="${sw}" height="${sh}" fill="#13161f"/>
+    ${walls}
+    ${door}
+    <text x="${ox + sw / 2}" y="${oy + sh / 2}" fill="#6b7280"
+      font-size="9" text-anchor="middle" dominant-baseline="middle"
+      font-family="system-ui,sans-serif">${esc(label)}</text>
+  </svg>`;
+}
+
 async function loadDoorSuggestions() {
   const body  = $("door-suggestions-body");
   const stats = $("door-stats");
   if (!body) return;
 
   try {
-    const data = await apiFetch("/api/doors/suggestions");
+    const [data, rooms] = await Promise.all([
+      apiFetch("/api/doors/suggestions"),
+      apiFetch("/api/rooms").catch(() => []),
+    ]);
+    const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r]));
+
     const s = data.stats || {};
     if (stats) stats.textContent =
       `${s.exit_events || 0} Exit-Events · ${s.entry_events || 0} Eintritte gesammelt`;
@@ -2238,7 +2312,8 @@ async function loadDoorSuggestions() {
       const confCol = conf >= 70 ? "var(--green)" : conf >= 40 ? "var(--yellow)" : "var(--muted)";
       const leadsTo = s.leads_to_name
         ? `<span style="color:var(--accent)">→ ${esc(s.leads_to_name)}</span>`
-        : `<span style="color:var(--muted)">→ Ziel unbekannt (mehr Daten nötig)</span>`;
+        : `<span style="color:var(--muted)">→ Ziel unbekannt</span>`;
+      const preview = _doorPreviewSvg(s, roomMap[s.room_id]);
 
       return `
         <div class="door-candidate" id="door-cand-${i}">
@@ -2266,10 +2341,19 @@ async function loadDoorSuggestions() {
               </button>
             </div>
           </div>
-          <div class="door-candidate__meta">
-            Position: <strong>${s.position_mm} mm</strong> von der Ecke
-            &nbsp;·&nbsp; Breite ca. <strong>${s.width_mm} mm</strong>
-            (${(s.width_mm / 10).toFixed(0)} cm)
+          <div class="door-candidate__body">
+            ${preview}
+            <div class="door-candidate__meta">
+              <div><strong>${esc(s.room_name)}</strong> · ${_WALL_DE[s.wall] || s.wall}</div>
+              <div style="margin-top:4px">
+                Position <strong>${s.position_mm} mm</strong> von der Ecke
+                &nbsp;·&nbsp; Breite <strong>${s.width_mm} mm</strong>
+                (${(s.width_mm / 10).toFixed(0)} cm)
+              </div>
+              <div style="margin-top:4px;color:${confCol};font-size:.8rem">
+                ${conf}% Konfidenz · ${s.exit_count} gemessene Durchgänge
+              </div>
+            </div>
           </div>
         </div>`;
     }).join("");

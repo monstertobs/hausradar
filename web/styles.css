@@ -797,10 +797,19 @@ main {
   flex-shrink: 0;
 }
 
+.door-candidate__body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
 .door-candidate__meta {
-  margin-top: 6px;
-  font-size: .8rem;
+  font-size: .82rem;
   color: var(--muted);
+  line-height: 1.6;
 }
 
 /* ===== Provisioning Guide ===== */
