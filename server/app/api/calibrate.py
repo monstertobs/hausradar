@@ -28,7 +28,7 @@ Endpunkte:
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -64,8 +64,9 @@ class DoorRequest(BaseModel):
 
 
 class PatchRoomRequest(BaseModel):
-    width_mm:  Optional[int]   = None
-    height_mm: Optional[int]   = None
+    width_mm:     Optional[int]              = None
+    height_mm:    Optional[int]              = None
+    shape_points: Optional[List[List[float]]] = None  # None = clear, list = set polygon
 
 
 class PatchSensorRequest(BaseModel):
@@ -867,6 +868,15 @@ def patch_room(room_id: str, body: PatchRoomRequest):
             raise HTTPException(status_code=422, detail="height_mm muss positiv sein")
         room["height_mm"] = body.height_mm
         updated["height_mm"] = body.height_mm
+    if "shape_points" in body.model_fields_set:
+        if body.shape_points is None:
+            room.pop("shape_points", None)
+            updated["shape_points"] = None
+        elif len(body.shape_points) < 3:
+            raise HTTPException(status_code=422, detail="shape_points braucht mindestens 3 Punkte")
+        else:
+            room["shape_points"] = [[float(p[0]), float(p[1])] for p in body.shape_points]
+            updated["shape_points"] = f"{len(body.shape_points)} Punkte"
 
     if not updated:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")

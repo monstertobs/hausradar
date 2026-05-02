@@ -1039,6 +1039,14 @@ function renderOverview(rooms) {
         editRoomDimensions(btnEditDims, room.id, room);
       });
     }
+    // Raumform bearbeiten
+    const btnEditShape = $(`btn-edit-room-shape-${room.id}`);
+    if (btnEditShape) {
+      btnEditShape.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        openRoomShapeEditor(room);
+      });
+    }
     // Sensorwerte bearbeiten
     for (const s of (room.sensors || [])) {
       const btnEditSensor = $(`btn-edit-sensor-${room.id}-${s.id}`);
@@ -1118,6 +1126,8 @@ function overviewRoomHtml(room) {
           </div>
           <button class="btn-edit-icon" title="Raummaße bearbeiten"
             id="btn-edit-room-dims-${esc(room.id)}">✏️</button>
+          <button class="btn-edit-icon" title="Raumform bearbeiten"
+            id="btn-edit-room-shape-${esc(room.id)}">🔷</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${(room.furniture||[]).length || (room.doors||[]).length ? `
@@ -1487,6 +1497,270 @@ async function editDoorItem(anchorEl, roomId, door, allRooms) {
     showRestartHint();
     loadOverview();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Raumform-Editor: Polygon mit ziehbaren Punkten
+// ---------------------------------------------------------------------------
+
+function openRoomShapeEditor(room) {
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const W = 480, H = 380, PAD = 40;
+  const rw = room.width_mm, rh = room.height_mm;
+  const scale = Math.min((W - PAD * 2) / rw, (H - PAD * 2) / rh);
+  const sw = rw * scale, sh = rh * scale;
+  const ox = PAD + (W - PAD * 2 - sw) / 2;
+  const oy = PAD + (H - PAD * 2 - sh) / 2;
+
+  // Punkte in mm (relativ zum Raumursprung)
+  let pts = (room.shape_points && room.shape_points.length >= 3)
+    ? room.shape_points.map(p => [+p[0], +p[1]])
+    : [[0, 0], [rw, 0], [rw, rh], [0, rh]];
+
+  const toSvg  = p  => [ox + p[0] * scale, oy + p[1] * scale];
+  const toMm   = (sx, sy) => [
+    Math.max(0, Math.min(rw, (sx - ox) / scale)),
+    Math.max(0, Math.min(rh, (sy - oy) / scale)),
+  ];
+
+  // Modal aufbauen
+  const overlay = document.createElement("div");
+  overlay.className = "shape-editor-overlay";
+  overlay.innerHTML = `
+    <div class="shape-editor-modal">
+      <div class="shape-editor-title">
+        🔷 Raumform: <strong>${esc(room.name)}</strong>
+        <button id="shape-close" class="shape-editor-close">✕</button>
+      </div>
+      <p class="muted" style="font-size:.8rem;margin-bottom:12px">
+        Punkte <strong>ziehen</strong> zum Verschieben ·
+        auf eine <strong>Kante klicken</strong> zum Hinzufügen ·
+        <strong>Doppelklick</strong> auf Punkt zum Löschen (min. 3)
+      </p>
+      <svg id="shape-svg" width="${W}" height="${H}"
+        style="display:block;border:1px solid var(--border);border-radius:6px;
+               background:#0a0d14;touch-action:none;cursor:crosshair">
+      </svg>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center">
+        <button id="shape-reset" class="btn-secondary" style="font-size:.82rem">
+          ↺ Rechteck
+        </button>
+        <button id="shape-clear" class="btn-secondary"
+          style="font-size:.82rem;color:var(--red);border-color:var(--red)">
+          🗑 Form löschen
+        </button>
+        <button id="shape-save" class="btn btn--primary" style="margin-left:auto">
+          💾 Speichern
+        </button>
+      </div>
+      <div id="shape-status" style="margin-top:8px;font-size:.8rem;color:var(--muted);min-height:18px"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const svg = document.getElementById("shape-svg");
+  let dragging = null;
+
+  function _el(tag, attrs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  }
+
+  function _areaM2(pts) {
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const j = (i + 1) % pts.length;
+      a += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+    }
+    return Math.abs(a) / 2 / 1e6;
+  }
+
+  function _distSeg(px, py, x1, y1, x2, y2) {
+    const dx = x2-x1, dy = y2-y1, l2 = dx*dx+dy*dy;
+    if (!l2) return Math.hypot(px-x1, py-y1);
+    const t = Math.max(0, Math.min(1, ((px-x1)*dx+(py-y1)*dy)/l2));
+    return Math.hypot(px-(x1+t*dx), py-(y1+t*dy));
+  }
+
+  function getSvgXY(e) {
+    const r = svg.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return [src.clientX - r.left, src.clientY - r.top];
+  }
+
+  function render() {
+    svg.innerHTML = "";
+
+    // Gitter (500 mm Schritte)
+    const step = Math.max(500, Math.round(rw / 8 / 500) * 500);
+    for (let x = 0; x <= rw; x += step) {
+      svg.appendChild(_el("line", {
+        x1: ox + x*scale, y1: oy, x2: ox + x*scale, y2: oy + sh,
+        stroke: "#1a1d27", "stroke-width": 1,
+      }));
+    }
+    for (let y = 0; y <= rh; y += step) {
+      svg.appendChild(_el("line", {
+        x1: ox, y1: oy + y*scale, x2: ox + sw, y2: oy + y*scale,
+        stroke: "#1a1d27", "stroke-width": 1,
+      }));
+    }
+
+    // Begrenzungsrechteck (gestrichelt)
+    svg.appendChild(_el("rect", {
+      x: ox, y: oy, width: sw, height: sh,
+      fill: "none", stroke: "#2a2d3a", "stroke-width": 1, "stroke-dasharray": "4,4",
+    }));
+
+    // Dimensionsbeschriftungen
+    const addTxt = (x, y, txt, anchor = "middle") => {
+      const t = _el("text", {
+        x, y, fill: "#4b5563", "font-size": 10,
+        "text-anchor": anchor, "font-family": "system-ui,sans-serif",
+      });
+      t.textContent = txt;
+      svg.appendChild(t);
+    };
+    addTxt(ox + sw/2, oy - 10, `${(rw/1000).toFixed(2)} m`);
+    addTxt(ox - 10, oy + sh/2, `${(rh/1000).toFixed(2)} m`, "end");
+
+    // Polygon-Füllung
+    const polyPts = pts.map(p => toSvg(p).join(",")).join(" ");
+    svg.appendChild(_el("polygon", {
+      points: polyPts, fill: "#22d3ee1a",
+      stroke: "#22d3ee", "stroke-width": 1.5, "stroke-linejoin": "round",
+    }));
+
+    // Unsichtbare dicke Kanten (zum Anklicken)
+    for (let i = 0; i < pts.length; i++) {
+      const j = (i + 1) % pts.length;
+      const [x1, y1] = toSvg(pts[i]), [x2, y2] = toSvg(pts[j]);
+      const hit = _el("line", {
+        x1, y1, x2, y2,
+        stroke: "transparent", "stroke-width": 14,
+      });
+      hit.dataset.edge = i;
+      hit.style.cursor = "cell";
+      svg.appendChild(hit);
+    }
+
+    // Punkte (Kreise)
+    pts.forEach((p, i) => {
+      const [cx, cy] = toSvg(p);
+      const c = _el("circle", {
+        cx, cy, r: 7,
+        fill: dragging === i ? "#60a5fa" : "#22d3ee",
+        stroke: "#0f1117", "stroke-width": 2,
+      });
+      c.dataset.pt = i;
+      c.style.cursor = "grab";
+      svg.appendChild(c);
+    });
+
+    // Status
+    document.getElementById("shape-status").textContent =
+      `${pts.length} Punkte · Fläche ca. ${_areaM2(pts).toFixed(1)} m²`;
+  }
+
+  // Pointer-Events
+  svg.addEventListener("pointerdown", e => {
+    const [sx, sy] = getSvgXY(e);
+
+    // Treffer auf Punkt?
+    for (let i = 0; i < pts.length; i++) {
+      const [vx, vy] = toSvg(pts[i]);
+      if (Math.hypot(sx-vx, sy-vy) <= 12) {
+        dragging = i;
+        svg.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // Treffer auf Kante → neuen Punkt einfügen
+    for (let i = 0; i < pts.length; i++) {
+      const j = (i + 1) % pts.length;
+      const [x1, y1] = toSvg(pts[i]), [x2, y2] = toSvg(pts[j]);
+      if (_distSeg(sx, sy, x1, y1, x2, y2) < 10) {
+        pts.splice(i + 1, 0, toMm(sx, sy));
+        dragging = i + 1;
+        svg.setPointerCapture(e.pointerId);
+        render();
+        e.preventDefault();
+        return;
+      }
+    }
+  });
+
+  svg.addEventListener("pointermove", e => {
+    if (dragging === null) return;
+    const [sx, sy] = getSvgXY(e);
+    pts[dragging] = toMm(sx, sy);
+    render();
+    e.preventDefault();
+  });
+
+  svg.addEventListener("pointerup", () => { dragging = null; render(); });
+
+  svg.addEventListener("dblclick", e => {
+    if (pts.length <= 3) return;
+    const [sx, sy] = getSvgXY(e);
+    for (let i = 0; i < pts.length; i++) {
+      const [vx, vy] = toSvg(pts[i]);
+      if (Math.hypot(sx-vx, sy-vy) <= 14) {
+        pts.splice(i, 1);
+        render();
+        return;
+      }
+    }
+  });
+
+  // Buttons
+  document.getElementById("shape-close").addEventListener("click", () =>
+    document.body.removeChild(overlay));
+
+  overlay.addEventListener("click", e => {
+    if (e.target === overlay) document.body.removeChild(overlay);
+  });
+
+  document.getElementById("shape-reset").addEventListener("click", () => {
+    pts = [[0,0],[rw,0],[rw,rh],[0,rh]];
+    render();
+  });
+
+  document.getElementById("shape-clear").addEventListener("click", async () => {
+    const st = document.getElementById("shape-status");
+    st.textContent = "Lösche individuelle Form …";
+    try {
+      await apiFetch(`/api/calibrate/room/${room.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shape_points: null }),
+      });
+      await apiFetch("/api/config/reload", { method: "POST" });
+      st.textContent = "✓ Zurückgesetzt – Raum wird wieder als Rechteck angezeigt.";
+      setTimeout(() => { document.body.removeChild(overlay); loadRoomsMgmt(); loadOverview(); }, 900);
+    } catch (e) { st.textContent = `Fehler: ${e.message}`; }
+  });
+
+  document.getElementById("shape-save").addEventListener("click", async () => {
+    const st = document.getElementById("shape-status");
+    st.textContent = "Speichere …";
+    try {
+      await apiFetch(`/api/calibrate/room/${room.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shape_points: pts.map(p => [Math.round(p[0]), Math.round(p[1])]),
+        }),
+      });
+      await apiFetch("/api/config/reload", { method: "POST" });
+      st.textContent = "✓ Gespeichert!";
+      setTimeout(() => { document.body.removeChild(overlay); loadRoomsMgmt(); loadOverview(); }, 800);
+    } catch (e) { st.textContent = `Fehler: ${e.message}`; }
+  });
+
+  render();
 }
 
 // ---------------------------------------------------------------------------

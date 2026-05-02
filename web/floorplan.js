@@ -462,14 +462,21 @@ class Floorplan {
     // Skalierungsfaktoren für Edit-Modus merken
     this._roomScales[room.id] = { fp, scX, scY, room };
 
-    // Haupt-Rechteck
-    const rect = this._el("rect", {
-      x: fp.x, y: fp.y, width: fp.width, height: fp.height,
-      class: "room-rect room-idle",
-      rx: 3,
-    });
-    g.appendChild(rect);
-    this._roomRects[room.id] = rect;
+    // Raumform: Polygon wenn shape_points vorhanden, sonst Rechteck
+    let roomShape;
+    if (room.shape_points && room.shape_points.length >= 3) {
+      const pts = room.shape_points
+        .map(([xMm, yMm]) => `${fp.x + xMm * scX},${fp.y + yMm * scY}`)
+        .join(" ");
+      roomShape = this._el("polygon", { points: pts, class: "room-rect room-idle" });
+    } else {
+      roomShape = this._el("rect", {
+        x: fp.x, y: fp.y, width: fp.width, height: fp.height,
+        class: "room-rect room-idle", rx: 3,
+      });
+    }
+    g.appendChild(roomShape);
+    this._roomRects[room.id] = roomShape;
 
     // Türen als Lücken in den Wänden (jetzt als <g> mit data-attrs)
     for (const door of (room.doors || [])) {
