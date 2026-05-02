@@ -2191,6 +2191,11 @@ async function handleCreateRoom() {
 // ---------------------------------------------------------------------------
 
 const _WALL_DE = {
+  top:    "Obere Wand",
+  bottom: "Untere Wand",
+  left:   "Linke Wand",
+  right:  "Rechte Wand",
+  // Altnamen (Kompatibilität mit alten Einträgen)
   north: "Obere Wand",
   south: "Untere Wand",
   west:  "Linke Wand",

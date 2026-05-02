@@ -142,15 +142,17 @@ def _detect_wall(x_mm: float, y_mm: float,
     Gibt (wall, wall_pos_mm) zurück wenn die Position nahe genug an einer Wand ist.
     wall_pos_mm = Position entlang der Wand (für Nord/Süd: x-Wert, für Ost/West: y-Wert).
     """
+    # Wand-Namen müssen mit dem Floorplan-Renderer übereinstimmen:
+    # top=y=0, bottom=y=height, left=x=0, right=x=width
     dist = {
-        "north": y_mm,
-        "south": room_h - y_mm,
-        "west":  x_mm,
-        "east":  room_w - x_mm,
+        "top":    y_mm,
+        "bottom": room_h - y_mm,
+        "left":   x_mm,
+        "right":  room_w - x_mm,
     }
     pos = {
-        "north": x_mm, "south": x_mm,
-        "west":  y_mm, "east":  y_mm,
+        "top": x_mm, "bottom": x_mm,
+        "left": y_mm, "right":  y_mm,
     }
     closest = min(dist, key=dist.__getitem__)
     if dist[closest] > WALL_THRESHOLD_MM:
