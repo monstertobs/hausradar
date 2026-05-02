@@ -849,7 +849,7 @@ def add_door_direct(room_id: str, body: AddDoorDirectRequest):
 
 
 @router.patch("/room/{room_id}", status_code=200)
-def patch_room(room_id: str, body: PatchRoomRequest):
+def patch_room(room_id: str, body: PatchRoomRequest, request: Request):
     """Ändert Raummaße (width_mm, height_mm) direkt in rooms.json."""
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -882,6 +882,7 @@ def patch_room(room_id: str, body: PatchRoomRequest):
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Raum '%s' gepatcht: %s", room_id, updated)
     return {"room_id": room_id, "updated": updated, "restart_required": True,
             "restart_hint": "sudo systemctl restart hausradar"}
@@ -923,7 +924,7 @@ def patch_sensor(sensor_id: str, body: PatchSensorRequest):
 
 
 @router.patch("/room/{room_id}/furniture/{fid}", status_code=200)
-def patch_furniture(room_id: str, fid: str, body: PatchFurnitureRequest):
+def patch_furniture(room_id: str, fid: str, body: PatchFurnitureRequest, request: Request):
     """Ändert ein Möbelstück direkt in rooms.json."""
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -959,13 +960,14 @@ def patch_furniture(room_id: str, fid: str, body: PatchFurnitureRequest):
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Möbelstück '%s' in Raum '%s' gepatcht: %s", fid, room_id, updated)
     return {"room_id": room_id, "furniture_id": fid, "updated": updated,
             "restart_required": True, "restart_hint": "sudo systemctl restart hausradar"}
 
 
 @router.patch("/room/{room_id}/door/{did}", status_code=200)
-def patch_door(room_id: str, did: str, body: PatchDoorRequest):
+def patch_door(room_id: str, did: str, body: PatchDoorRequest, request: Request):
     """Ändert eine Tür direkt in rooms.json."""
     valid_walls = {"top", "bottom", "left", "right"}
     if body.wall is not None and body.wall not in valid_walls:
@@ -998,6 +1000,7 @@ def patch_door(room_id: str, did: str, body: PatchDoorRequest):
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Tür '%s' in Raum '%s' gepatcht: %s", did, room_id, updated)
     return {"room_id": room_id, "door_id": did, "updated": updated,
             "restart_required": True, "restart_hint": "sudo systemctl restart hausradar"}
