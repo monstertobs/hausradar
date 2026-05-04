@@ -91,11 +91,15 @@ class TestMqttServiceInterface:
 
     def test_on_connect_rc0_sets_connected(self):
         svc = MqttService()
-        svc._topic = "test/+"
+        svc._topic = "hausradar/sensor/+/state"
         mock_client = MagicMock()
         svc._on_connect(mock_client, None, {}, 0)
         assert svc.connected is True
-        mock_client.subscribe.assert_called_once_with("test/+")
+        # Zwei Subscriptions: Daten-Topic + LWT-Status-Topic
+        assert mock_client.subscribe.call_count == 2
+        calls = [c.args[0] for c in mock_client.subscribe.call_args_list]
+        assert "hausradar/sensor/+/state"  in calls
+        assert "hausradar/sensor/+/status" in calls
 
     def test_on_connect_rc_nonzero_stays_disconnected(self):
         svc = MqttService()
@@ -105,7 +109,8 @@ class TestMqttServiceInterface:
     def test_on_disconnect_clears_connected(self):
         svc = MqttService()
         svc._connected = True
-        svc._on_disconnect(MagicMock(), None, 1)
+        # VERSION2: signature is (client, userdata, disconnect_flags, reason_code, properties)
+        svc._on_disconnect(MagicMock(), None, {}, 1)
         assert svc.connected is False
 
 

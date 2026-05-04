@@ -81,7 +81,7 @@ function _renderSensors(sensors, rooms, liveData) {
   const summary = document.getElementById("sensors-summary");
   if (!el) return;
 
-  const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.name]));
+  const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, esc(r.name)]));
 
   if (!sensors.length) {
     el.innerHTML = '<p class="muted">Keine Sensoren konfiguriert.</p>';
@@ -110,7 +110,7 @@ function _renderSensors(sensors, rooms, liveData) {
                   title="Sensor identifizieren">📡 Identifizieren</button>
         </div>
         <div class="sensor-tile__meta">
-          <strong>${esc(roomMap[s.room_id] || s.room_id)}</strong>
+          <strong>${roomMap[s.room_id] || esc(s.room_id)}</strong>
           &nbsp;·&nbsp; ${statusTxt}${personTxt}<br>
           <span class="mqtt-topic"><code>${mqttTopic}</code></span>
         </div>
@@ -199,11 +199,11 @@ function _initProvisioning(sensors, rooms) {
   const guide = document.getElementById("prov-guide");
   if (!sel || !guide) return;
 
-  const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.name]));
+  const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, esc(r.name)]));
 
   sel.innerHTML = '<option value="">— Sensor wählen —</option>' +
     (sensors || []).map(s =>
-      `<option value="${esc(s.id)}">${esc(s.name)} – ${esc(roomMap[s.room_id] || s.room_id)}</option>`
+      `<option value="${esc(s.id)}">${esc(s.name)} – ${roomMap[s.room_id] || esc(s.room_id)}</option>`
     ).join("");
 
   sel.addEventListener("change", async () => {

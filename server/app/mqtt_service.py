@@ -43,6 +43,11 @@ class MqttService:
     def connected(self) -> bool:
         return self._connected
 
+    # LWT-Topic-Muster: hausradar/sensor/+/status
+    # Der Sensor publiziert "online" beim Verbinden, der Broker publiziert
+    # "offline" automatisch wenn die Verbindung unerwartet getrennt wird.
+    _LWT_SUFFIX = "/status"
+
     def start(self, app: Any) -> None:
         self._app = app
         cfg = app.state.settings.get("mqtt", {})
@@ -52,7 +57,7 @@ class MqttService:
         reconnect_delay = cfg.get("reconnect_delay_seconds", 5)
 
         client = mqtt.Client(
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id="hausradar-server",
         )
         client.reconnect_delay_set(min_delay=1, max_delay=reconnect_delay * 4)
@@ -84,21 +89,41 @@ class MqttService:
     # ------------------------------------------------------------------
 
     def _on_connect(self, client: mqtt.Client, userdata: Any,
-                    flags: dict, rc: int) -> None:
-        if rc == 0:
+                    connect_flags, reason_code, properties=None) -> None:
+        if reason_code == 0:
             self._connected = True
             client.subscribe(self._topic)
-            logger.info("MQTT verbunden, subscribed: %s", self._topic)
+            # LWT-Topic: hausradar/sensor/+/status
+            lwt_topic = self._topic.replace("/+/state", "/+/status")
+            client.subscribe(lwt_topic)
+            logger.info("MQTT verbunden, subscribed: %s + %s", self._topic, lwt_topic)
         else:
-            logger.warning("MQTT Verbindung abgelehnt (rc=%d)", rc)
+            logger.warning("MQTT Verbindung abgelehnt (reason_code=%s)", reason_code)
 
-    def _on_disconnect(self, client: mqtt.Client, userdata: Any, rc: int) -> None:
+    def _on_disconnect(self, client: mqtt.Client, userdata: Any,
+                       disconnect_flags, reason_code, properties=None) -> None:
         self._connected = False
-        if rc != 0:
-            logger.info("MQTT getrennt (rc=%d), warte auf Reconnect …", rc)
+        if reason_code != 0:
+            logger.info("MQTT getrennt (reason_code=%s), warte auf Reconnect …", reason_code)
 
     def _on_message(self, client: mqtt.Client, userdata: Any,
                     msg: mqtt.MQTTMessage) -> None:
+        topic = msg.topic
+
+        # LWT-Status-Nachrichten direkt verarbeiten (kein JSON-Parse nötig)
+        if topic.endswith(self._LWT_SUFFIX):
+            parts = topic.split("/")
+            # Format: hausradar/sensor/{sensor_id}/status
+            if len(parts) >= 3:
+                sensor_id = parts[-2]
+                status    = msg.payload.decode("utf-8", errors="replace").strip()
+                if status == "offline":
+                    live_state.mark_offline(sensor_id)
+                    logger.info("MQTT LWT: Sensor '%s' offline", sensor_id)
+                elif status == "online":
+                    logger.debug("MQTT LWT: Sensor '%s' online", sensor_id)
+            return
+
         try:
             payload = json.loads(msg.payload.decode("utf-8"))
         except Exception as exc:

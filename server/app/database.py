@@ -53,6 +53,7 @@ def init_db(db_path: str) -> None:
                 sensor_id    TEXT    NOT NULL,
                 room_id      TEXT    NOT NULL,
                 target_id    INTEGER NOT NULL,
+                track_id     INTEGER,
                 timestamp_ms INTEGER NOT NULL,
                 room_x_mm    REAL,
                 room_y_mm    REAL,
@@ -84,6 +85,23 @@ def init_db(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_se_sensor_ts
                 ON sensor_events(sensor_id, timestamp_ms);
         """)
+
+        # Migration: track_id-Spalte in bestehenden Datenbanken ergänzen.
+        # Muss VOR dem CREATE INDEX laufen, da ALTER TABLE die Spalte
+        # erst bekannt machen muss bevor der Index darauf angelegt werden kann.
+        try:
+            conn.execute(
+                "ALTER TABLE target_positions ADD COLUMN track_id INTEGER"
+            )
+            logger.info("Datenbank-Migration: Spalte track_id hinzugefügt.")
+        except Exception:
+            pass  # Spalte existiert bereits (Neuinstallation oder bereits migriert)
+
+        # Index nach der Migration anlegen (Spalte ist jetzt sicher vorhanden)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_track"
+            " ON target_positions(track_id)"
+        )
 
         # Zombie-Sessions schließen: bei einem Absturz oder ungeplanten Neustart
         # bleiben Sessions mit ended_at_ms=NULL übrig. Wir setzen sie auf "jetzt".
@@ -160,11 +178,12 @@ def record_motion(
         for t in inside:
             conn.execute(
                 """INSERT INTO target_positions
-                   (sensor_id, room_id, target_id, timestamp_ms,
+                   (sensor_id, room_id, target_id, track_id, timestamp_ms,
                     room_x_mm, room_y_mm, zone_id, speed_mm_s, distance_mm)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    sensor_id, room_id, t["id"], timestamp_ms,
+                    sensor_id, room_id, t["id"], t.get("track_id"),
+                    timestamp_ms,
                     t.get("room_x_mm"), t.get("room_y_mm"),
                     t.get("zone_id"),
                     t.get("speed_mm_s"), t.get("distance_mm"),

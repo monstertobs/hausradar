@@ -52,6 +52,14 @@ def seconds_since(sensor_id: str) -> Optional[float]:
     return time.monotonic() - entry["_last_seen_mono"]
 
 
+def mark_offline(sensor_id: str) -> None:
+    """Markiert einen Sensor sofort als offline (z.B. nach LWT).
+    Setzt den last_seen_mono-Zeitstempel weit in die Vergangenheit."""
+    entry = _state.get(sensor_id)
+    if entry is not None:
+        _state[sensor_id] = {**entry, "_last_seen_mono": 0.0}
+
+
 def clear() -> None:
     """Leert den State – nur für Tests."""
     _state.clear()

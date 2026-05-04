@@ -362,7 +362,15 @@ static void connectMqtt() {
     Serial.printf("[MQTT] Verbinde mit %s:%d …\n", cfg.mqtt_host, MQTT_PORT);
     const char* user = strlen(cfg.mqtt_user) ? cfg.mqtt_user : nullptr;
     const char* pass = strlen(cfg.mqtt_pass) ? cfg.mqtt_pass : nullptr;
+
+    // LWT: Broker publiziert "offline" wenn Verbindung unerwartet getrennt wird
+    char lwtTopic[96];
+    snprintf(lwtTopic, sizeof(lwtTopic), "hausradar/sensor/%s/status", cfg.sensor_id);
+    mqttClient.setWill(lwtTopic, "offline", /*qos=*/0, /*retain=*/true);
+
     if (mqttClient.connect(clientId, user, pass)) {
+        // Online-Status veröffentlichen (retained, überschreibt LWT)
+        mqttClient.publish(lwtTopic, "online", /*retain=*/true);
         Serial.println("[MQTT] Verbunden.");
     } else {
         Serial.printf("[MQTT] Fehlgeschlagen (state=%d) – Retry in 5 s\n", mqttClient.state());

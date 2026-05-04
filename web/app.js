@@ -77,10 +77,12 @@ function handleLiveUpdate(data) {
 // ============================================================
 // Raumstatus-Leiste
 // ============================================================
-let _rooms = [];
+let _rooms   = [];
+let _sensors = [];
 
-function _buildStatusBar(rooms) {
-  _rooms = rooms;
+function _buildStatusBar(rooms, sensors) {
+  _rooms   = rooms;
+  _sensors = sensors || [];
   _renderStatusBar({});
 }
 
@@ -107,7 +109,10 @@ function _renderStatusBar(roomStatus) {
 
   bar.innerHTML = _rooms.map(r => {
     const st = roomStatus[r.id] || "idle";
-    return `<span class="room-pill room-pill--${st}">
+    // Sensor-Namen als Tooltip zusammenstellen
+    const roomSensors = _sensors.filter(s => s.room_id === r.id);
+    const tooltip     = roomSensors.map(s => esc(s.name)).join(", ");
+    return `<span class="room-pill room-pill--${st}"${tooltip ? ` title="${tooltip}"` : ""}>
       ${esc(r.name)}
       <span class="room-pill__dot"></span>
       <span class="room-pill__label">${label[st] || st}</span>
@@ -121,7 +126,7 @@ function _renderStatusBar(roomStatus) {
 async function init() {
   try {
     const [rooms, sensors] = await Promise.all([API.rooms(), API.sensors()]);
-    _buildStatusBar(rooms);
+    _buildStatusBar(rooms, sensors);
     initFloorplan(rooms, sensors);
   } catch (err) {
     console.error("Initialisierungsfehler:", err);
