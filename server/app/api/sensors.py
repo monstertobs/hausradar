@@ -8,7 +8,6 @@ Endpunkte:
   DELETE /api/sensors/{sensor_id}      → Sensor löschen
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -16,25 +15,13 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.config_io import load_json, save_json
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 BASE_DIR   = Path(__file__).resolve().parent.parent.parent.parent
 CONFIG_DIR = BASE_DIR / "config"
-
-
-# ---------------------------------------------------------------------------
-# Hilfsfunktionen
-# ---------------------------------------------------------------------------
-
-def _load(path: Path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _save(path: Path, data) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def _unique_id(base: str, used: set) -> str:
@@ -66,9 +53,9 @@ class PatchSensorBody(BaseModel):
 
 
 @router.patch("/sensors/{sensor_id}", status_code=200)
-def patch_sensor_meta(sensor_id: str, body: PatchSensorBody):
+def patch_sensor_meta(sensor_id: str, body: PatchSensorBody, request: Request):
     sensors_path = CONFIG_DIR / "sensors.json"
-    sensors = _load(sensors_path)
+    sensors = load_json(sensors_path)
     sensor = next((s for s in sensors if s["id"] == sensor_id), None)
     if not sensor:
         raise HTTPException(status_code=404, detail=f"Sensor '{sensor_id}' nicht gefunden")
@@ -87,14 +74,10 @@ def patch_sensor_meta(sensor_id: str, body: PatchSensorBody):
     if not updated:
         raise HTTPException(status_code=422, detail="Keine Felder angegeben")
 
-    _save(sensors_path, sensors)
+    save_json(sensors_path, sensors)
+    request.app.state.sensors = sensors
     logger.info("Sensor '%s' gepatcht: %s", sensor_id, updated)
-    return {
-        "sensor_id":        sensor_id,
-        "updated":          updated,
-        "restart_required": True,
-        "restart_hint":     "sudo systemctl restart hausradar",
-    }
+    return {"sensor_id": sensor_id, "updated": updated}
 
 
 # ---------------------------------------------------------------------------
@@ -111,11 +94,11 @@ class CreateSensorBody(BaseModel):
 
 
 @router.post("/sensors", status_code=201)
-def create_sensor(body: CreateSensorBody):
+def create_sensor(body: CreateSensorBody, request: Request):
     rooms_path   = CONFIG_DIR / "rooms.json"
     sensors_path = CONFIG_DIR / "sensors.json"
-    rooms   = _load(rooms_path)
-    sensors = _load(sensors_path)
+    rooms   = load_json(rooms_path)
+    sensors = load_json(sensors_path)
 
     room = next((r for r in rooms if r["id"] == body.room_id), None)
     if not room:
@@ -133,14 +116,11 @@ def create_sensor(body: CreateSensorBody):
         "enabled":         True,
     }
     sensors.append(new_sensor)
-    _save(sensors_path, sensors)
+    save_json(sensors_path, sensors)
+    request.app.state.sensors = sensors
 
     logger.info("Sensor '%s' angelegt für Raum '%s'", sid, body.room_id)
-    return {
-        "sensor":           new_sensor,
-        "restart_required": True,
-        "restart_hint":     "sudo systemctl restart hausradar",
-    }
+    return {"sensor": new_sensor}
 
 
 # ---------------------------------------------------------------------------
@@ -148,19 +128,16 @@ def create_sensor(body: CreateSensorBody):
 # ---------------------------------------------------------------------------
 
 @router.delete("/sensors/{sensor_id}", status_code=200)
-def delete_sensor(sensor_id: str):
+def delete_sensor(sensor_id: str, request: Request):
     sensors_path = CONFIG_DIR / "sensors.json"
-    sensors = _load(sensors_path)
+    sensors = load_json(sensors_path)
     sensor = next((s for s in sensors if s["id"] == sensor_id), None)
     if not sensor:
         raise HTTPException(status_code=404, detail=f"Sensor '{sensor_id}' nicht gefunden")
 
     sensors = [s for s in sensors if s["id"] != sensor_id]
-    _save(sensors_path, sensors)
+    save_json(sensors_path, sensors)
+    request.app.state.sensors = sensors
 
     logger.info("Sensor '%s' gelöscht", sensor_id)
-    return {
-        "sensor_id":        sensor_id,
-        "restart_required": True,
-        "restart_hint":     "sudo systemctl restart hausradar",
-    }
+    return {"sensor_id": sensor_id}

@@ -7,7 +7,6 @@ POST /api/doors/confirm      – Tür-Kandidat bestätigen → schreibt in rooms
 DELETE /api/doors/events     – alle Events löschen (Reset)
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -16,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app import door_detector
+from app.config_io import load_json, save_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,8 +74,7 @@ def confirm_door(body: ConfirmDoorBody, request: Request):
     Eine Tür wird als Door-Objekt in beide verbundenen Räume eingetragen.
     """
     rooms_path = CONFIG_DIR / "rooms.json"
-    with open(rooms_path, encoding="utf-8") as f:
-        rooms = json.load(f)
+    rooms = load_json(rooms_path)
 
     room = next((r for r in rooms if r["id"] == body.room_id), None)
     if not room:
@@ -114,10 +113,7 @@ def confirm_door(body: ConfirmDoorBody, request: Request):
             }
             target_room.setdefault("doors", []).append(target_door)
 
-    with open(rooms_path, "w", encoding="utf-8") as f:
-        json.dump(rooms, f, ensure_ascii=False, indent=2)
-
-    # app.state direkt aktualisieren
+    save_json(rooms_path, rooms)
     request.app.state.rooms = rooms
 
     logger.info("Tür bestätigt: %s / %s @ %dmm → %s",

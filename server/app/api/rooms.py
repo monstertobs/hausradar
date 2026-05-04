@@ -8,7 +8,6 @@ Endpunkte:
   DELETE /api/rooms/{room_id}      → Raum + zugehörige Sensoren löschen
 """
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -16,6 +15,8 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+from app.config_io import load_json, save_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,16 +32,6 @@ FP_PAD = 10   # px Außenabstand
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
-
-def _load(path: Path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _save(path: Path, data) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
 
 def _slugify(name: str) -> str:
     """Name → maschinenlesbarer Bezeichner (lowercase ASCII)."""
@@ -80,9 +71,9 @@ class PatchRoomBody(BaseModel):
 
 
 @router.patch("/rooms/{room_id}", status_code=200)
-def patch_room(room_id: str, body: PatchRoomBody):
+def patch_room(room_id: str, body: PatchRoomBody, request: Request):
     rooms_path = CONFIG_DIR / "rooms.json"
-    rooms = _load(rooms_path)
+    rooms = load_json(rooms_path)
     room = next((r for r in rooms if r["id"] == room_id), None)
     if not room:
         raise HTTPException(status_code=404, detail=f"Raum '{room_id}' nicht gefunden")
@@ -95,14 +86,10 @@ def patch_room(room_id: str, body: PatchRoomBody):
     if not updated:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
 
-    _save(rooms_path, rooms)
+    save_json(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Raum '%s' umbenannt: %s", room_id, updated)
-    return {
-        "room_id":         room_id,
-        "updated":         updated,
-        "restart_required": True,
-        "restart_hint":    "sudo systemctl restart hausradar",
-    }
+    return {"room_id": room_id, "updated": updated}
 
 
 # ---------------------------------------------------------------------------
@@ -117,11 +104,11 @@ class CreateRoomBody(BaseModel):
 
 
 @router.post("/rooms", status_code=201)
-def create_room(body: CreateRoomBody):
+def create_room(body: CreateRoomBody, request: Request):
     rooms_path   = CONFIG_DIR / "rooms.json"
     sensors_path = CONFIG_DIR / "sensors.json"
-    rooms   = _load(rooms_path)
-    sensors = _load(sensors_path)
+    rooms   = load_json(rooms_path)
+    sensors = load_json(sensors_path)
 
     # Raum-ID aus Namen ableiten
     rid = _unique_id(_slugify(body.name.strip()), {r["id"] for r in rooms})
@@ -151,7 +138,8 @@ def create_room(body: CreateRoomBody):
         "doors":     [],
     }
     rooms.append(new_room)
-    _save(rooms_path, rooms)
+    save_json(rooms_path, rooms)
+    request.app.state.rooms = rooms
 
     # Optionalen Sensor anlegen
     sensor_out = None
@@ -168,17 +156,13 @@ def create_room(body: CreateRoomBody):
             "enabled":         True,
         }
         sensors.append(new_sensor)
-        _save(sensors_path, sensors)
+        save_json(sensors_path, sensors)
+        request.app.state.sensors = sensors
         sensor_out = new_sensor
         logger.info("Sensor '%s' angelegt für Raum '%s'", sid, rid)
 
     logger.info("Neuer Raum '%s' angelegt", rid)
-    return {
-        "room":            new_room,
-        "sensor":          sensor_out,
-        "restart_required": True,
-        "restart_hint":    "sudo systemctl restart hausradar",
-    }
+    return {"room": new_room, "sensor": sensor_out}
 
 
 # ---------------------------------------------------------------------------
@@ -186,11 +170,11 @@ def create_room(body: CreateRoomBody):
 # ---------------------------------------------------------------------------
 
 @router.delete("/rooms/{room_id}", status_code=200)
-def delete_room(room_id: str):
+def delete_room(room_id: str, request: Request):
     rooms_path   = CONFIG_DIR / "rooms.json"
     sensors_path = CONFIG_DIR / "sensors.json"
-    rooms   = _load(rooms_path)
-    sensors = _load(sensors_path)
+    rooms   = load_json(rooms_path)
+    sensors = load_json(sensors_path)
 
     room = next((r for r in rooms if r["id"] == room_id), None)
     if not room:
@@ -206,13 +190,10 @@ def delete_room(room_id: str):
             if door.get("connects_to") == room_id:
                 door["connects_to"] = ""
 
-    _save(rooms_path, rooms)
-    _save(sensors_path, sensors)
+    save_json(rooms_path, rooms)
+    save_json(sensors_path, sensors)
+    request.app.state.rooms   = rooms
+    request.app.state.sensors = sensors
 
     logger.info("Raum '%s' gelöscht, %d Sensor(en) entfernt", room_id, len(removed_sensors))
-    return {
-        "room_id":         room_id,
-        "sensors_removed": removed_sensors,
-        "restart_required": True,
-        "restart_hint":    "sudo systemctl restart hausradar",
-    }
+    return {"room_id": room_id, "sensors_removed": removed_sensors}

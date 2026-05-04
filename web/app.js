@@ -124,7 +124,16 @@ async function init() {
     _buildStatusBar(rooms);
     initFloorplan(rooms, sensors);
   } catch (err) {
-    console.error("API-Fehler:", err);
+    console.error("Initialisierungsfehler:", err);
+    // Fehlerzustand im Grundriss anzeigen
+    const container = document.getElementById("floorplan-container");
+    if (container) {
+      container.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--text-muted);gap:8px">
+        <span style="font-size:2rem">⚠️</span>
+        <span>Grundriss konnte nicht geladen werden</span>
+        <button onclick="location.reload()" style="margin-top:8px;padding:6px 16px;border-radius:6px;background:var(--card-border);border:none;color:var(--text-primary);cursor:pointer">↻ Neu laden</button>
+      </div>`;
+    }
   }
   wsConnect();
 }

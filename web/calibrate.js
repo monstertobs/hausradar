@@ -2195,10 +2195,9 @@ async function addDoorToRoom(anchorEl, roomId, allRooms) {
 }
 
 /**
- * Konfiguration live neu laden und kurze Bestätigungsmeldung anzeigen.
- * Ersetzt den alten „Neustart erforderlich"-Hinweis – für alle
- * Kalibrierungsänderungen (Möbel, Zonen, Türen, Layout) ist kein
- * Dienstneustart mehr nötig.
+ * Bestätigungs-Toast nach einer Kalibrierungsänderung.
+ * State ist bereits in app.state aktualisiert; config/reload läuft
+ * als stille Sicherheitsprüfung im Hintergrund.
  */
 async function showRestartHint() {
   let hint = document.getElementById("restart-hint-banner");
@@ -2209,24 +2208,18 @@ async function showRestartHint() {
       position:fixed;top:60px;left:50%;transform:translateX(-50%);
       background:#052e16;border:1px solid #22c55e;border-radius:8px;
       padding:10px 20px;font-size:.875rem;z-index:9999;
-      box-shadow:0 4px 20px rgba(0,0,0,.5);text-align:center;min-width:280px`;
+      box-shadow:0 4px 20px rgba(0,0,0,.5);text-align:center;min-width:220px`;
     document.body.appendChild(hint);
   }
 
-  // Zuerst anzeigen, dann Reload im Hintergrund
-  hint.innerHTML = `⏳ Gespeichert – Konfiguration wird neu geladen …`;
+  // Sofort Erfolg zeigen – State wurde bereits server-seitig aktualisiert
+  hint.innerHTML = `✅ Gespeichert`;
   hint.style.display = "block";
   clearTimeout(hint._timer);
+  hint._timer = setTimeout(() => { hint.style.display = "none"; }, 3000);
 
-  try {
-    await apiFetch("/api/config/reload", { method: "POST" });
-    hint.innerHTML = `✅ Gespeichert – Konfiguration neu geladen`;
-  } catch (_) {
-    // Reload nicht kritisch – Änderung wurde bereits gespeichert
-    hint.innerHTML = `✅ Gespeichert`;
-  }
-
-  hint._timer = setTimeout(() => { hint.style.display = "none"; }, 4000);
+  // Config-Reload still im Hintergrund (Sicherheitsnetz)
+  apiFetch("/api/config/reload", { method: "POST" }).catch(() => {});
 }
 
 // Wizard mit vorausgefülltem Sensor/Raum starten

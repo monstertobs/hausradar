@@ -25,8 +25,8 @@ Endpunkte:
   POST   /api/calibrate/session/{sid}/save                     → In Config schreiben
 """
 
-import json
 import logging
+import uuid
 from pathlib import Path
 from typing import List, Optional
 
@@ -35,6 +35,7 @@ from pydantic import BaseModel
 
 from app import live_state
 from app import calibration_engine as engine
+from app.config_io import load_json, save_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/calibrate", tags=["calibrate"])
@@ -386,10 +387,7 @@ def save_calibration(session_id: str, request: Request):
 
     # --- rooms.json aktualisieren ---
     rooms_path = CONFIG_DIR / "rooms.json"
-    try:
-        rooms = json.loads(rooms_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"rooms.json lesen fehlgeschlagen: {e}")
+    rooms = _load_json_file(rooms_path)
 
     room_obj = next((r for r in rooms if r["id"] == room_id), None)
     if room_obj is None:
@@ -457,19 +455,11 @@ def save_calibration(session_id: str, request: Request):
         doors_list[:] = [d for d in doors_list if d.get("id") != door["id"]]
         doors_list.append(dobj)
 
-    try:
-        rooms_path.write_text(
-            json.dumps(rooms, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"rooms.json schreiben fehlgeschlagen: {e}")
+    _write_json_file(rooms_path, rooms)
 
     # --- sensors.json aktualisieren ---
     sensors_path = CONFIG_DIR / "sensors.json"
-    try:
-        sensors = json.loads(sensors_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"sensors.json lesen fehlgeschlagen: {e}")
+    sensors = _load_json_file(sensors_path)
 
     sensor_obj = next((s for s in sensors if s["id"] == sensor_id), None)
     if sensor_obj is None:
@@ -479,12 +469,9 @@ def save_calibration(session_id: str, request: Request):
     sensor_obj["y_mm"]        = computed["sensor_y_mm"]
     sensor_obj["rotation_deg"] = computed["rotation_deg"]
 
-    try:
-        sensors_path.write_text(
-            json.dumps(sensors, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"sensors.json schreiben fehlgeschlagen: {e}")
+    _write_json_file(sensors_path, sensors)
+    request.app.state.rooms   = rooms
+    request.app.state.sensors = sensors
 
     logger.info(
         "Kalibrierung gespeichert: Raum=%s (%.0f×%.0f mm, war %.0f×%.0f mm), "
@@ -507,8 +494,6 @@ def save_calibration(session_id: str, request: Request):
         },
         "furniture_saved": len([f for f in session["furniture"] if f.get("computed")]),
         "doors_saved":      len([d for d in session.get("doors", []) if d.get("computed")]),
-        "restart_required": True,
-        "restart_hint": "sudo systemctl restart hausradar",
     }
 
 
@@ -516,18 +501,9 @@ def save_calibration(session_id: str, request: Request):
 # Übersicht gespeicherter Kalibrierungen
 # ---------------------------------------------------------------------------
 
-def _load_json_file(path: Path):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{path.name} lesen fehlgeschlagen: {e}")
-
-
-def _write_json_file(path: Path, data) -> None:
-    try:
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{path.name} schreiben fehlgeschlagen: {e}")
+# Lokale Aliase für Lesbarkeit (load_json / save_json kommen aus config_io)
+_load_json_file  = load_json
+_write_json_file = save_json
 
 
 @router.get("/overview")
@@ -578,7 +554,7 @@ def get_overview():
 # ---------------------------------------------------------------------------
 
 @router.delete("/room/{room_id}/furniture/{furniture_id}", status_code=200)
-def delete_furniture_item(room_id: str, furniture_id: str):
+def delete_furniture_item(room_id: str, furniture_id: str, request: Request):
     """Löscht ein einzelnes Möbelstück (und die zugehörige Zone) aus rooms.json."""
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -601,19 +577,14 @@ def delete_furniture_item(room_id: str, furniture_id: str):
                             detail=f"Möbelstück '{furniture_id}' nicht in Raum '{room_id}'")
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Möbelstück '%s' aus Raum '%s' gelöscht (%d Zone(n) mitgelöscht)",
                 furniture_id, room_id, deleted_zones)
-
-    return {
-        "deleted":       furniture_id,
-        "zones_removed": deleted_zones,
-        "restart_required": True,
-        "restart_hint":  "sudo systemctl restart hausradar",
-    }
+    return {"deleted": furniture_id, "zones_removed": deleted_zones}
 
 
 @router.delete("/room/{room_id}/door/{door_id}", status_code=200)
-def delete_door(room_id: str, door_id: str):
+def delete_door(room_id: str, door_id: str, request: Request):
     """Löscht eine einzelne Tür aus rooms.json."""
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -630,13 +601,13 @@ def delete_door(room_id: str, door_id: str):
                             detail=f"Tür '{door_id}' nicht in Raum '{room_id}'")
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Tür '%s' aus Raum '%s' gelöscht", door_id, room_id)
-    return {"deleted": door_id, "restart_required": True,
-            "restart_hint": "sudo systemctl restart hausradar"}
+    return {"deleted": door_id}
 
 
 @router.delete("/room/{room_id}/furniture", status_code=200)
-def delete_all_furniture(room_id: str):
+def delete_all_furniture(room_id: str, request: Request):
     """Löscht alle Möbel eines Raums. Zonen die aus Möbeln stammen werden ebenfalls entfernt."""
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -654,17 +625,13 @@ def delete_all_furniture(room_id: str):
     room["zones"] = [z for z in room.get("zones", []) if z.get("id") not in furn_ids]
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Alle %d Möbelstück(e) aus Raum '%s' gelöscht", count, room_id)
-
-    return {
-        "deleted_count":    count,
-        "restart_required": True,
-        "restart_hint":     "sudo systemctl restart hausradar",
-    }
+    return {"deleted_count": count}
 
 
 @router.delete("/room/{room_id}/zone/{zone_id}", status_code=200)
-def delete_zone(room_id: str, zone_id: str):
+def delete_zone(room_id: str, zone_id: str, request: Request):
     """Löscht eine einzelne Zone aus rooms.json."""
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -681,13 +648,13 @@ def delete_zone(room_id: str, zone_id: str):
                             detail=f"Zone '{zone_id}' nicht in Raum '{room_id}'")
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Zone '%s' aus Raum '%s' gelöscht", zone_id, room_id)
-    return {"deleted": zone_id, "restart_required": True,
-            "restart_hint": "sudo systemctl restart hausradar"}
+    return {"deleted": zone_id}
 
 
 @router.delete("/room/{room_id}/zones", status_code=200)
-def delete_all_zones(room_id: str):
+def delete_all_zones(room_id: str, request: Request):
     """Löscht alle Zonen eines Raums (unabhängig davon, ob sie aus Möbeln stammen)."""
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -700,9 +667,9 @@ def delete_all_zones(room_id: str):
     room["zones"] = []
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Alle %d Zone(n) aus Raum '%s' gelöscht", count, room_id)
-    return {"deleted_count": count, "restart_required": True,
-            "restart_hint": "sudo systemctl restart hausradar"}
+    return {"deleted_count": count}
 
 
 # ---------------------------------------------------------------------------
@@ -710,7 +677,7 @@ def delete_all_zones(room_id: str):
 # ---------------------------------------------------------------------------
 
 @router.delete("/room/{room_id}/reset", status_code=200)
-def reset_room_calibration(room_id: str):
+def reset_room_calibration(room_id: str, request: Request):
     """
     Setzt die Kalibrierung eines Raums zurück:
       - Möbel und daraus entstandene Zonen werden gelöscht
@@ -735,6 +702,7 @@ def reset_room_calibration(room_id: str):
     room["zones"]     = [z for z in room.get("zones", []) if z.get("id") not in furn_ids]
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
 
     # Sensoren dieses Raums auf Standardposition zurücksetzen
     reset_sensors = []
@@ -748,19 +716,13 @@ def reset_room_calibration(room_id: str):
             reset_sensors.append(sensor["id"])
 
     _write_json_file(sensors_path, sensors)
+    request.app.state.sensors = sensors
 
     logger.info(
         "Kalibrierung von Raum '%s' zurückgesetzt: %d Möbel gelöscht, %d Sensor(en) resettet",
         room_id, furn_count, len(reset_sensors),
     )
-
-    return {
-        "room_id":          room_id,
-        "furniture_deleted": furn_count,
-        "sensors_reset":    reset_sensors,
-        "restart_required": True,
-        "restart_hint":     "sudo systemctl restart hausradar",
-    }
+    return {"room_id": room_id, "furniture_deleted": furn_count, "sensors_reset": reset_sensors}
 
 
 # ---------------------------------------------------------------------------
@@ -768,7 +730,7 @@ def reset_room_calibration(room_id: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/room/{room_id}/furniture", status_code=201)
-def add_furniture_direct(room_id: str, body: AddFurnitureDirectRequest):
+def add_furniture_direct(room_id: str, body: AddFurnitureDirectRequest, request: Request):
     """Fügt ein Möbelstück direkt zu einem Raum hinzu (ohne Kalibrierungs-Session)."""
     valid_walls = {"top", "bottom", "left", "right"}
     rooms_path = CONFIG_DIR / "rooms.json"
@@ -780,7 +742,7 @@ def add_furniture_direct(room_id: str, body: AddFurnitureDirectRequest):
     if body.width_mm <= 0 or body.height_mm <= 0:
         raise HTTPException(status_code=422, detail="width_mm und height_mm müssen positiv sein")
 
-    import uuid
+
     furn_id = str(uuid.uuid4())[:8]
 
     furn_entry = {
@@ -808,13 +770,13 @@ def add_furniture_direct(room_id: str, body: AddFurnitureDirectRequest):
         room.setdefault("zones", []).append(zone_entry)
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Möbelstück '%s' direkt zu Raum '%s' hinzugefügt", furn_id, room_id)
-    return {"room_id": room_id, "furniture_id": furn_id, "restart_required": True,
-            "restart_hint": "sudo systemctl restart hausradar"}
+    return {"room_id": room_id, "furniture_id": furn_id}
 
 
 @router.post("/room/{room_id}/door", status_code=201)
-def add_door_direct(room_id: str, body: AddDoorDirectRequest):
+def add_door_direct(room_id: str, body: AddDoorDirectRequest, request: Request):
     """Fügt eine Tür direkt zu einem Raum hinzu (ohne Kalibrierungs-Session)."""
     valid_walls = {"top", "bottom", "left", "right"}
     if body.wall not in valid_walls:
@@ -832,7 +794,7 @@ def add_door_direct(room_id: str, body: AddDoorDirectRequest):
     if body.position_mm < 0:
         raise HTTPException(status_code=422, detail="position_mm darf nicht negativ sein")
 
-    import uuid
+
     door_id = str(uuid.uuid4())[:8]
 
     door_entry = {
@@ -846,9 +808,9 @@ def add_door_direct(room_id: str, body: AddDoorDirectRequest):
 
     room.setdefault("doors", []).append(door_entry)
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Tür '%s' direkt zu Raum '%s' hinzugefügt", door_id, room_id)
-    return {"room_id": room_id, "door_id": door_id, "restart_required": True,
-            "restart_hint": "sudo systemctl restart hausradar"}
+    return {"room_id": room_id, "door_id": door_id}
 
 
 @router.patch("/room/{room_id}", status_code=200)
@@ -887,12 +849,11 @@ def patch_room(room_id: str, body: PatchRoomRequest, request: Request):
     _write_json_file(rooms_path, rooms)
     request.app.state.rooms = rooms
     logger.info("Raum '%s' gepatcht: %s", room_id, updated)
-    return {"room_id": room_id, "updated": updated, "restart_required": True,
-            "restart_hint": "sudo systemctl restart hausradar"}
+    return {"room_id": room_id, "updated": updated}
 
 
 @router.patch("/sensor/{sensor_id}", status_code=200)
-def patch_sensor(sensor_id: str, body: PatchSensorRequest):
+def patch_sensor(sensor_id: str, body: PatchSensorRequest, request: Request):
     """Ändert Sensorposition/-rotation direkt in sensors.json."""
     sensors_path = CONFIG_DIR / "sensors.json"
     sensors = _load_json_file(sensors_path)
@@ -921,9 +882,9 @@ def patch_sensor(sensor_id: str, body: PatchSensorRequest):
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
 
     _write_json_file(sensors_path, sensors)
+    request.app.state.sensors = sensors
     logger.info("Sensor '%s' gepatcht: %s", sensor_id, updated)
-    return {"sensor_id": sensor_id, "updated": updated, "restart_required": True,
-            "restart_hint": "sudo systemctl restart hausradar"}
+    return {"sensor_id": sensor_id, "updated": updated}
 
 
 @router.patch("/room/{room_id}/furniture/{fid}", status_code=200)
@@ -965,8 +926,7 @@ def patch_furniture(room_id: str, fid: str, body: PatchFurnitureRequest, request
     _write_json_file(rooms_path, rooms)
     request.app.state.rooms = rooms
     logger.info("Möbelstück '%s' in Raum '%s' gepatcht: %s", fid, room_id, updated)
-    return {"room_id": room_id, "furniture_id": fid, "updated": updated,
-            "restart_required": True, "restart_hint": "sudo systemctl restart hausradar"}
+    return {"room_id": room_id, "furniture_id": fid, "updated": updated}
 
 
 @router.patch("/room/{room_id}/door/{did}", status_code=200)
@@ -1005,8 +965,7 @@ def patch_door(room_id: str, did: str, body: PatchDoorRequest, request: Request)
     _write_json_file(rooms_path, rooms)
     request.app.state.rooms = rooms
     logger.info("Tür '%s' in Raum '%s' gepatcht: %s", did, room_id, updated)
-    return {"room_id": room_id, "door_id": did, "updated": updated,
-            "restart_required": True, "restart_hint": "sudo systemctl restart hausradar"}
+    return {"room_id": room_id, "door_id": did, "updated": updated}
 
 
 # ---------------------------------------------------------------------------
@@ -1014,7 +973,7 @@ def patch_door(room_id: str, did: str, body: PatchDoorRequest, request: Request)
 # ---------------------------------------------------------------------------
 
 @router.post("/layout", status_code=200)
-def compute_and_save_layout():
+def compute_and_save_layout(request: Request):
     """
     Berechnet SVG-Floorplan-Koordinaten für alle Räume neu:
     BFS-Traversal des Türgraphen → angrenzende Räume werden an der passenden
@@ -1118,13 +1077,12 @@ def compute_and_save_layout():
         room["floorplan"] = {"x": fx, "y": fy, "width": fw, "height": fh}
 
     _write_json_file(rooms_path, rooms)
+    request.app.state.rooms = rooms
     logger.info("Grundriss-Auto-Layout: %d Räume platziert", len(placed))
 
     return {
-        "placed":           len(placed),
-        "layout":           {rid: {"x": x, "y": y, "w": fp_size(room_map[rid])[0],
-                                   "h": fp_size(room_map[rid])[1]}
-                             for rid, (x, y) in placed.items()},
-        "restart_required": True,
-        "restart_hint":     "sudo systemctl restart hausradar",
+        "placed": len(placed),
+        "layout": {rid: {"x": x, "y": y, "w": fp_size(room_map[rid])[0],
+                         "h": fp_size(room_map[rid])[1]}
+                   for rid, (x, y) in placed.items()},
     }
