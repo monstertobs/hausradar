@@ -21,11 +21,18 @@ from app import tracker as person_tracker
 from app import door_detector
 from app import transition_detector
 from app import orientation_detector
+from app import layout_engine
 from app.websocket_service import manager as ws_manager
 
 # Letzte bekannte Track-IDs pro Sensor (für Exit-Erkennung)
 _prev_track_ids: Dict[str, Dict[int, dict]] = {}
 _prev_lock = threading.Lock()
+
+# Layout-Throttle: maximal alle 3s neu berechnen
+import time as _time
+_last_layout_ts: float = 0.0
+_last_layout:    dict  = {}
+_layout_lock     = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +208,7 @@ class MqttService:
             try:
                 self._detect_door_events(
                     sensor_id, room_id, tracked,
-                    room["width_mm"], room["height_mm"],
+                    room["width_mm"], room["height_mm"], app,
                 )
             except Exception as exc:
                 logger.warning("_detect_door_events Fehler: %s", exc, exc_info=True)
@@ -244,8 +251,34 @@ class MqttService:
         except Exception as exc:
             logger.warning("MQTT _process Fehler: %s", exc)
 
+    def _maybe_push_layout_update(self, app: Any) -> None:
+        """Berechnet das Live-Layout neu wenn nötig und pusht es als WS-Event."""
+        global _last_layout_ts, _last_layout
+        now = _time.time()
+        with _layout_lock:
+            if now - _last_layout_ts < 3.0:
+                return
+            _last_layout_ts = now
+
+        try:
+            rooms    = app.state.rooms
+            conns    = transition_detector.get_connections()
+            new_layout = layout_engine.compute(rooms, conns)
+            with _layout_lock:
+                if not layout_engine.layout_changed(_last_layout, new_layout):
+                    return
+                _last_layout = dict(new_layout)
+
+            live_state.push_event({
+                "type":   "layout_update",
+                "layout": new_layout,
+            })
+        except Exception as exc:
+            logger.warning("_maybe_push_layout_update Fehler: %s", exc)
+
     def _detect_door_events(self, sensor_id: str, room_id: str,
-                            tracked: list, room_w: float, room_h: float) -> None:
+                            tracked: list, room_w: float, room_h: float,
+                            app: Any = None) -> None:
         """
         Vergleicht aktuelle Tracks mit dem letzten Frame.
         Exit-Events werden auf zwei Arten erkannt:
@@ -294,12 +327,14 @@ class MqttService:
 
             # Eintritte: neue echte Tracks (vorher weder real noch Ghost)
             # ODER Track war draußen und ist jetzt (wieder) drinnen
+            _new_transit = False
             for tid, t in curr_real.items():
                 if tid not in prev_all:
                     door_detector.record_entry(room_id, t["room_x_mm"], t["room_y_mm"])
                     transit = transition_detector.record_entry(room_id)
                     if transit:
                         live_state.push_event(transit)
+                        _new_transit = True
                 else:
                     t_prev = prev_all[tid]
                     if not t_prev.get("inside_room", True) and t.get("inside_room", True):
@@ -307,6 +342,10 @@ class MqttService:
                         transit = transition_detector.record_entry(room_id)
                         if transit:
                             live_state.push_event(transit)
+                            _new_transit = True
+
+            if _new_transit and app is not None:
+                self._maybe_push_layout_update(app)
 
             _prev_track_ids[sensor_id + ":all"]  = curr_all
             _prev_track_ids[sensor_id + ":real"] = curr_real

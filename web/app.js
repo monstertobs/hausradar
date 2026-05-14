@@ -74,8 +74,31 @@ function handleLiveUpdate(data) {
   if (data.sensors) _updateStatusBar(data.sensors);
   if (data.events && floorplan) {
     for (const ev of data.events) {
-      if (ev.type === "transit") floorplan.animateTransit(ev.from_room, ev.to_room);
+      if (ev.type === "transit") {
+        floorplan.animateTransit(ev.from_room, ev.to_room);
+      } else if (ev.type === "layout_update") {
+        _applyLiveLayout(ev.layout);
+      }
     }
+  }
+}
+
+async function _applyLiveLayout(layout) {
+  if (!floorplan || !layout) return;
+  try {
+    // Aktuelle Raumdaten holen und Positionen überschreiben
+    const [rooms, sensors, connData] = await Promise.all([
+      API.rooms(),
+      API.sensors(),
+      API.connections.list().catch(() => ({ connections: [] })),
+    ]);
+    for (const room of rooms) {
+      const pos = layout[room.id];
+      if (pos) room.floorplan = { ...room.floorplan, ...pos };
+    }
+    floorplan.applyLayout(rooms, sensors, connData.connections || []);
+  } catch (err) {
+    console.warn("Layout-Update fehlgeschlagen:", err);
   }
 }
 

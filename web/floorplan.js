@@ -64,6 +64,29 @@ class Floorplan {
     if (this._connLayer) this._renderConnections();
   }
 
+  /** Baut den Grundriss mit neuen Raum-Positionen neu auf (Fade-Übergang). */
+  applyLayout(rooms, sensors, connections) {
+    this._rooms       = rooms;
+    this._sensors     = sensors || this._sensors;
+    this._connections = connections || this._connections;
+    this._trails      = {};   // Spuren zurücksetzen (Positionen sind jetzt anders)
+    this._roomLastActive = {};
+
+    if (this._svg) {
+      this._svg.style.transition = "opacity 0.4s ease";
+      this._svg.style.opacity    = "0";
+      setTimeout(() => {
+        this._build();
+        if (this._svg) {
+          this._svg.style.opacity = "1";
+          setTimeout(() => { this._svg.style.transition = ""; }, 450);
+        }
+      }, 400);
+    } else {
+      this._build();
+    }
+  }
+
   /** Animiert einen Personen-Transit von Raum A nach Raum B. */
   animateTransit(fromRoomId, toRoomId) {
     if (!this._svg || !this._transitLayer) return;
