@@ -82,13 +82,9 @@ async def simulate_motion(payload: MotionPayload, request: Request):
     # Sensor validieren
     sensor = next((s for s in sensors if s["id"] == payload.sensor_id), None)
     if sensor is None:
-        known = ", ".join(s["id"] for s in sensors)
         raise HTTPException(
             status_code=422,
-            detail=(
-                f"Unbekannter Sensor '{payload.sensor_id}'. "
-                f"Bekannte Sensoren: {known}"
-            ),
+            detail="Sensor nicht bekannt",
         )
 
     # room_id muss zum Sensor passen

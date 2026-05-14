@@ -81,7 +81,7 @@ class TestSimulateMotion:
         payload = {**VALID_PAYLOAD, "sensor_id": "radar_nicht_vorhanden"}
         r = client.post("/api/simulate/motion", json=payload)
         assert r.status_code == 422
-        assert "nicht_vorhanden" in r.json()["detail"]
+        assert "bekannt" in r.json()["detail"]
 
     def test_wrong_room_id_returns_422(self, client):
         payload = {**VALID_PAYLOAD, "room_id": "falscher_raum"}

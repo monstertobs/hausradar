@@ -31,6 +31,7 @@ def save_json(path: Path, data) -> None:
     tmp = path.with_suffix(".tmp")
     try:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.chmod(0o600)   # HR-SEC-006: nur Owner darf Config-Dateien lesen
         tmp.replace(path)  # atomar auf POSIX, best-effort auf Windows
     except Exception as e:
         tmp.unlink(missing_ok=True)

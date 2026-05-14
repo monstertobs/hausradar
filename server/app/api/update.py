@@ -62,6 +62,10 @@ _state: dict = {
     "backup_dir":  None,     # str – Pfad zum Config-Backup
 }
 
+# HR-SEC-011: Rate-Limit für /start – maximal 1 Update alle 60 Sekunden
+_RATE_LIMIT_S   = 60
+_last_start_ts: Optional[float] = None
+
 
 def _emit(level: str, msg: str, pct: int = -1) -> None:
     entry = {"level": level, "msg": msg, "pct": pct, "ts": time.time()}
@@ -155,9 +159,15 @@ def get_status():
 
 @router.post("/start")
 def start_update():
+    global _last_start_ts
     with _lock:
         if _state["phase"] == "running":
             raise HTTPException(409, "Update läuft bereits")
+        now = time.time()
+        if _last_start_ts and (now - _last_start_ts) < _RATE_LIMIT_S:
+            wait = int(_RATE_LIMIT_S - (now - _last_start_ts))
+            raise HTTPException(429, f"Zu viele Update-Anfragen – bitte {wait}s warten")
+        _last_start_ts = now
         _state.update({
             "phase": "running", "log": [],
             "prev_commit": None, "backup_dir": None,
@@ -250,13 +260,29 @@ def _do_update():
     # ── 2. Config sichern ───────────────────────────────────────────────────
     _emit("info", "Konfigurationsdateien sichern …", 10)
     backup = Path(tempfile.mkdtemp(prefix="hausradar_backup_"))
+    backup.chmod(0o700)   # HR-SEC-012: kein world-read für Backup mit API-Keys
     shutil.copytree(str(CONFIG_DIR), str(backup / "config"))
     with _lock:
         _state["backup_dir"] = str(backup)
     _emit("ok", f"Backup: {backup.name}", 15)
 
-    # ── 3. Remote abrufen ───────────────────────────────────────────────────
+    # ── 3. Remote-URL verifizieren + abrufen ───────────────────────────────
     _emit("info", "Verbinde mit GitHub …", 20)
+
+    # HR-SEC-003: Remote-URL prüfen bevor Code gezogen wird
+    r_url = _git(["remote", "get-url", "origin"])
+    if r_url.returncode == 0:
+        remote_url = r_url.stdout.strip()
+        if remote_url:
+            _emit("info", f"Remote: {remote_url}", -1)
+            # Nur github.com / bekannte Hosts erlauben
+            allowed_hosts = ("github.com", "gitlab.com", "bitbucket.org")
+            if not any(h in remote_url for h in allowed_hosts):
+                raise RuntimeError(
+                    f"Unbekannter Remote-Host: {remote_url} – "
+                    "Update abgebrochen (möglicher Supply-Chain-Angriff)"
+                )
+
     fetch = _git(["fetch", "origin", "main", "--quiet"], timeout=30)
     if fetch.returncode != 0:
         raise RuntimeError(f"git fetch fehlgeschlagen: {fetch.stderr.strip()}")

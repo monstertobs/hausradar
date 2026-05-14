@@ -64,7 +64,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https://api.qrserver.com; "
             "connect-src 'self' ws: wss:; "
-            "frame-ancestors 'none'"
+            "frame-ancestors 'none'; "
+            "report-uri /api/csp-report"
         )
         return response
 
@@ -99,7 +100,7 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 
 _API_KEY: Optional[str] = None
 
-_API_KEY_EXEMPT_PREFIXES = ("/api/health",)
+_API_KEY_EXEMPT_PREFIXES = ("/api/health", "/api/csp-report")
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -152,6 +153,15 @@ async def lifespan(app: FastAPI):
 
     furniture_detector.load()
     logger.info("Dwell-Zonen geladen: %d", len(furniture_detector.get_zones()))
+
+    # HR-SEC-005: Config-Dateien auf owner-only einschränken (enthält API-Key, MQTT-Credentials)
+    for _cfg_name in ("settings.json", "rooms.json", "sensors.json"):
+        _cfg_file = BASE_DIR / "config" / _cfg_name
+        try:
+            if _cfg_file.exists():
+                _cfg_file.chmod(0o600)
+        except OSError as _e:
+            logger.warning("Konnte %s nicht auf 0o600 setzen: %s", _cfg_name, _e)
 
     # API-Key aus Konfiguration laden
     _API_KEY = app.state.settings.get("server", {}).get("api_key") or None
@@ -263,7 +273,28 @@ def health():
         "ws_clients":     ws_manager.connection_count,
         "mqtt_connected": mqtt_service.connected,
         "db_ok":          db.check_db(app.state.db_path),
+        "auth_enabled":   bool(_API_KEY),
     }
+
+
+# HR-SEC-014: CSP Violation Reporting
+_csp_report_logger = logging.getLogger("csp_report")
+
+@app.post("/api/csp-report")
+async def csp_report(request: Request):
+    """Empfängt CSP-Verletzungsberichte vom Browser und loggt sie."""
+    try:
+        body = await request.json()
+        report = body.get("csp-report", body)
+        _csp_report_logger.warning(
+            "CSP-Verletzung: blocked-uri=%s violated-directive=%s document-uri=%s",
+            report.get("blocked-uri", "?"),
+            report.get("violated-directive", "?"),
+            report.get("document-uri", "?"),
+        )
+    except Exception:
+        pass
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +320,16 @@ async def ws_live(websocket: WebSocket):
         await websocket.close(code=1008)
         logger.warning("WebSocket abgelehnt – Origin nicht erlaubt: %s", origin)
         return
+
+    # HR-SEC-009: API-Key für WebSocket prüfen wenn kein Origin-Allowlist aktiv.
+    # Browser-Clients laufen über Origin-Check; nicht-Browser-Clients brauchen ?key=…
+    if _API_KEY and not allowed_origins:
+        key = (websocket.query_params.get("key", "")
+               or websocket.headers.get("X-API-Key", ""))
+        if key != _API_KEY:
+            await websocket.close(code=1008)
+            logger.warning("WebSocket abgelehnt – ungültiger API-Key")
+            return
 
     if not await ws_manager.connect(websocket):
         return

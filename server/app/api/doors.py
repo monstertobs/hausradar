@@ -8,6 +8,7 @@ DELETE /api/doors/events     – alle Events löschen (Reset)
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -80,8 +81,9 @@ def confirm_door(body: ConfirmDoorBody, request: Request):
     if not room:
         raise HTTPException(404, f"Raum '{body.room_id}' nicht gefunden")
 
-    # Tür-Objekt bauen
-    door_id = f"auto_{body.room_id}_{body.wall}_{body.position_mm}"
+    # Tür-Objekt bauen (HR-SEC-003: room_id sanitisieren)
+    safe_room_id  = re.sub(r"[^a-zA-Z0-9_-]", "_", body.room_id)
+    door_id = f"auto_{safe_room_id}_{body.wall}_{body.position_mm}"
     new_door = {
         "id":          door_id,
         "wall":        body.wall,
@@ -104,8 +106,9 @@ def confirm_door(body: ConfirmDoorBody, request: Request):
         if target_room:
             opposite = {"top": "bottom", "bottom": "top",
                         "left": "right",  "right": "left"}.get(body.wall, body.wall)
+            safe_leads_to = re.sub(r"[^a-zA-Z0-9_-]", "_", body.leads_to)
             target_door = {
-                "id":          f"auto_{body.leads_to}_{opposite}_{body.position_mm}",
+                "id":          f"auto_{safe_leads_to}_{opposite}_{body.position_mm}",
                 "wall":        opposite,
                 "position_mm": body.position_mm,
                 "width_mm":    body.width_mm,

@@ -1,7 +1,7 @@
-fastapi>=0.115.5
-# starlette wird als transitive Abhängigkeit von fastapi installiert.
-# Neuere fastapi-Versionen bündeln bereits die Fixes für:
-#   GHSA-2c2j-9gv5-cj73, GHSA-7f5h-v6xp-fcq8 (HR-SEC-010)
-uvicorn[standard]>=0.32.1
-pydantic>=2.10.3,<3.0
-paho-mqtt>=2.0.0
+# HR-SEC-004: exakte Versionen pinnen – verhindert unbemerkte Abhängigkeits-Updates
+# (GHSA-2c2j-9gv5-cj73, GHSA-7f5h-v6xp-fcq8 sind in starlette 0.41.3 / fastapi 0.115.5 gefixt)
+fastapi==0.115.5
+starlette==0.41.3
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+paho-mqtt==2.1.0
