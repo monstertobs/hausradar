@@ -30,6 +30,7 @@ class Floorplan {
     this._connections = [];   // gelernte Verbindungen aus API
     this._roomRects   = {};   // room_id → <rect> element
     this._roomScales  = {};   // room_id → { fp, scX, scY, room }
+    this._calPhases   = {};   // room_id → "none"|"learning"|"improving"|"confident"
     this._connLayer   = null; // SVG-Gruppe für Verbindungslinien
     this._dwellLayer  = null; // SVG-Gruppe für Dwell-Zonen (Möbel-Heatmap)
     this._dwellZones  = [];   // aktuelle Dwell-Zonen
@@ -69,6 +70,19 @@ class Floorplan {
   updateDwellZones(zones) {
     this._dwellZones = zones || [];
     if (this._dwellLayer) this._renderDwellZones();
+  }
+
+  updateCalPhases(phases) {
+    this._calPhases = phases || {};
+    if (!this._svg) return;
+    for (const g of this._svg.querySelectorAll(".room-group[data-room-id]")) {
+      const rid   = g.dataset.roomId;
+      const phase = this._calPhases[rid] || "confident";
+      g.setAttribute("data-cal-phase", phase);
+      // Cal-Hinweistext aktualisieren
+      const hint = g.querySelector(".room-cal-hint");
+      if (hint) hint.textContent = _calHintText(phase);
+    }
   }
 
   /** Baut den Grundriss mit neuen Raum-Positionen neu auf (Fade-Übergang). */
@@ -680,8 +694,13 @@ class Floorplan {
   }
 
   _buildRoom(svg, room) {
-    const fp  = room.floorplan;
-    const g   = this._el("g", { class: "room-group" });
+    const fp    = room.floorplan;
+    const phase = this._calPhases[room.id] || "confident";
+    const g     = this._el("g", {
+      class:            "room-group",
+      "data-room-id":   room.id,
+      "data-cal-phase": phase,
+    });
     const scX = fp.width  / room.width_mm;
     const scY = fp.height / room.height_mm;
 
@@ -813,6 +832,19 @@ class Floorplan {
     label.textContent = room.name;
     g.appendChild(label);
 
+    // Kalibrierungs-Hinweis (verschwindet sobald phase==="confident")
+    if (phase !== "confident") {
+      const hint = this._el("text", {
+        x: fp.x + fp.width  / 2,
+        y: fp.y + fp.height / 2,
+        class: "room-cal-hint",
+        "text-anchor":       "middle",
+        "dominant-baseline": "middle",
+      });
+      hint.textContent = _calHintText(phase);
+      g.appendChild(hint);
+    }
+
     svg.appendChild(g);
   }
 
@@ -934,6 +966,16 @@ class Floorplan {
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
     return el;
   }
+}
+
+// ----------------------------------------------------------------
+// Hilfsfunktionen (modul-global)
+// ----------------------------------------------------------------
+
+function _calHintText(phase) {
+  return phase === "none"     ? "kein Signal"   :
+         phase === "learning" ? "lernt …"       :
+         phase === "improving"? "verfeinert …"  : "";
 }
 
 // ----------------------------------------------------------------

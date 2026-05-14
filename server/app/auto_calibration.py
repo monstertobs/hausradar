@@ -61,6 +61,18 @@ def get_all_counts() -> Dict[str, int]:
         return {sid: len(buf) for sid, buf in _buffers.items()}
 
 
+def get_phase(sensor_id: str) -> str:
+    """Kalibrierungsphase: none → learning → improving → confident."""
+    n = get_sample_count(sensor_id)
+    if n == 0:
+        return "none"
+    if n < MIN_SAMPLES:
+        return "learning"
+    if n < GOOD_SAMPLES:
+        return "improving"
+    return "confident"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Schätzung
 # ──────────────────────────────────────────────────────────────────────────────

@@ -36,6 +36,15 @@ _last_layout_ts: float = 0.0
 _last_layout:    dict  = {}
 _layout_lock     = threading.Lock()
 
+# Auto-Kalibrierung: maximal alle 120s pro Sensor prüfen
+_AUTO_APPLY_INTERVAL_S  = 120.0
+_AUTO_APPLY_CONFIDENCE  = 0.65
+_AUTO_APPLY_ROOM_DIFF   = 300   # mm – kleinere Änderungen ignorieren
+_AUTO_APPLY_SENSOR_DIFF = 200   # mm – kleinere x_mm-Änderungen ignorieren
+_auto_apply_ts: Dict[str, float] = {}
+_auto_apply_lock  = threading.Lock()
+_config_write_lock = threading.Lock()  # serialisiert Schreibzugriffe auf config/*.json
+
 logger = logging.getLogger(__name__)
 
 
@@ -222,6 +231,7 @@ class MqttService:
                 "timestamp_ms": timestamp_ms,
                 "target_count": len(real_targets),
                 "targets":      all_targets,
+                "cal_phase":    auto_calibration.get_phase(sensor_id),
             })
 
             # DB schreiben (sync, rate-limited) – keine Ghost-Targets
@@ -250,6 +260,9 @@ class MqttService:
 
             logger.debug("MQTT verarbeitet: sensor=%s targets=%d",
                          sensor_id, len(enriched))
+
+            # Auto-Kalibrierung periodisch prüfen (blockierungsfrei)
+            self._schedule_auto_apply(sensor_id, room_id)
 
         except Exception as exc:
             logger.warning("MQTT _process Fehler: %s", exc)
@@ -360,6 +373,126 @@ class MqttService:
 
             _prev_track_ids[sensor_id + ":all"]  = curr_all
             _prev_track_ids[sensor_id + ":real"] = curr_real
+
+
+    # ------------------------------------------------------------------
+    # Auto-Kalibrierung (M24)
+    # ------------------------------------------------------------------
+
+    def _schedule_auto_apply(self, sensor_id: str, room_id: str) -> None:
+        """Startet Auto-Kalibrierung in eigenem Thread wenn Intervall abgelaufen."""
+        now = _time.time()
+        with _auto_apply_lock:
+            if now - _auto_apply_ts.get(sensor_id, 0) < _AUTO_APPLY_INTERVAL_S:
+                return
+            _auto_apply_ts[sensor_id] = now
+        threading.Thread(
+            target=self._do_auto_apply,
+            args=(sensor_id, room_id),
+            daemon=True,
+        ).start()
+
+    def _do_auto_apply(self, sensor_id: str, room_id: str) -> None:
+        try:
+            with _config_write_lock:
+                events = self._apply_calibration_if_improved(sensor_id, room_id)
+            for ev in events:
+                live_state.push_event(ev)
+            if events:
+                self._maybe_push_layout_update(self._app)
+        except Exception as exc:
+            logger.warning("Auto-Kalibrierung Fehler (%s): %s", sensor_id, exc, exc_info=True)
+
+    def _apply_calibration_if_improved(self, sensor_id: str, room_id: str) -> list:
+        """
+        Prüft M23 (Raumgröße) und M21 (Sensorparameter).
+        Wendet an wenn Konfidenz ≥ Schwellwert und Änderung nennenswert.
+        Gibt Liste von calibration_update-Events zurück.
+        """
+        from pathlib import Path
+        from app.config import load_rooms, load_sensors
+        from app.config_io import load_json, save_json
+
+        app = self._app
+        if app is None:
+            return []
+
+        cfg_dir      = Path(__file__).resolve().parent.parent.parent / "config"
+        rooms_path   = cfg_dir / "rooms.json"
+        sensors_path = cfg_dir / "sensors.json"
+        events: list = []
+
+        # ── M23: Raumgröße automatisch ermitteln ──────────────────────────
+        rs = auto_calibration.suggest_room_size(sensor_id)
+        if rs and rs.get("confidence", 0) >= _AUTO_APPLY_CONFIDENCE:
+            room = next((r for r in app.state.rooms if r["id"] == room_id), None)
+            if room:
+                curr_w, curr_h = room.get("width_mm", 0), room.get("height_mm", 0)
+                new_w,  new_h  = rs["width_mm"],          rs["height_mm"]
+                if abs(new_w - curr_w) > _AUTO_APPLY_ROOM_DIFF or \
+                   abs(new_h - curr_h) > _AUTO_APPLY_ROOM_DIFF:
+                    rooms_data = load_json(rooms_path)
+                    for r in rooms_data:
+                        if r["id"] == room_id:
+                            r["width_mm"]  = new_w
+                            r["height_mm"] = new_h
+                            break
+                    save_json(rooms_path, rooms_data)
+                    app.state.rooms   = load_rooms()
+                    app.state.sensors = load_sensors(app.state.rooms)
+                    logger.info(
+                        "Auto-Cal Raumgröße %s: %d×%d → %d×%d mm (conf=%.2f)",
+                        room_id, curr_w, curr_h, new_w, new_h, rs["confidence"],
+                    )
+                    w_m = f"{new_w / 1000:.1f}"
+                    h_m = f"{new_h / 1000:.1f}"
+                    events.append({
+                        "type":       "calibration_update",
+                        "subtype":    "room_size",
+                        "room_id":    room_id,
+                        "width_mm":   new_w,
+                        "height_mm":  new_h,
+                        "confidence": rs["confidence"],
+                        "msg":        f"Raumgröße ermittelt: {w_m} × {h_m} m",
+                    })
+
+        # ── M21: Sensorparameter automatisch ermitteln ────────────────────
+        rooms   = app.state.rooms  # ggf. frisch geladen nach M23
+        sensors = app.state.sensors
+        room    = next((r for r in rooms   if r["id"]  == room_id),   None)
+        sensor  = next((s for s in sensors if s["id"]  == sensor_id), None)
+        if room and sensor:
+            cal = auto_calibration.suggest(sensor_id, room)
+            if cal and cal.get("confidence", 0) >= _AUTO_APPLY_CONFIDENCE:
+                new_rot  = cal["rotation_deg"]
+                new_x    = cal["sensor_x_mm"]
+                curr_rot = sensor.get("rotation_deg", 0)
+                curr_x   = sensor.get("x_mm", 0)
+                if new_rot != curr_rot or abs(new_x - curr_x) > _AUTO_APPLY_SENSOR_DIFF:
+                    sensors_data = load_json(sensors_path)
+                    for s in sensors_data:
+                        if s["id"] == sensor_id:
+                            s["rotation_deg"] = new_rot
+                            s["x_mm"]         = new_x
+                            s["y_mm"]         = cal["sensor_y_mm"]
+                            break
+                    save_json(sensors_path, sensors_data)
+                    app.state.sensors = load_sensors(app.state.rooms)
+                    logger.info(
+                        "Auto-Cal Sensor %s: rot %d°→%d°, x %d→%d mm (conf=%.2f)",
+                        sensor_id, curr_rot, new_rot, curr_x, new_x, cal["confidence"],
+                    )
+                    events.append({
+                        "type":         "calibration_update",
+                        "subtype":      "sensor",
+                        "sensor_id":    sensor_id,
+                        "rotation_deg": new_rot,
+                        "sensor_x_mm":  new_x,
+                        "confidence":   cal["confidence"],
+                        "msg":          f"Sensor kalibriert: {new_rot}°",
+                    })
+
+        return events
 
 
 # Globale Singleton-Instanz

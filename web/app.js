@@ -72,15 +72,53 @@ function _setWsStatus(state) {
 function handleLiveUpdate(data) {
   if (floorplan) floorplan.update(data);
   if (data.sensors) _updateStatusBar(data.sensors);
-  if (data.events && floorplan) {
+
+  // Kalibrierungsphasen: höchste Phase pro Raum (falls mehrere Sensoren)
+  if (data.sensors && floorplan) {
+    const phaseRank = { none: 0, learning: 1, improving: 2, confident: 3 };
+    const phases    = {};
+    for (const sdata of Object.values(data.sensors)) {
+      const rid = sdata.room_id;
+      const ph  = sdata.cal_phase;
+      if (rid && ph && (phaseRank[ph] ?? 0) > (phaseRank[phases[rid]] ?? -1)) {
+        phases[rid] = ph;
+      }
+    }
+    floorplan.updateCalPhases(phases);
+  }
+
+  if (data.events) {
     for (const ev of data.events) {
-      if (ev.type === "transit") {
+      if (ev.type === "transit" && floorplan) {
         floorplan.animateTransit(ev.from_room, ev.to_room);
       } else if (ev.type === "layout_update") {
         _applyLiveLayout(ev.layout);
+      } else if (ev.type === "calibration_update") {
+        _handleCalibrationUpdate(ev);
       }
     }
   }
+}
+
+async function _handleCalibrationUpdate(ev) {
+  _showCalibrationToast(ev.msg || "Kalibrierung verbessert");
+  // Grundriss mit aktuellen Raumdaten neu aufbauen
+  await _applyLiveLayout({});
+}
+
+let _calToastTimer = null;
+function _showCalibrationToast(msg) {
+  let t = document.getElementById("cal-update-toast");
+  if (!t) {
+    t = document.createElement("div");
+    t.id        = "cal-update-toast";
+    t.className = "fp-toast fp-toast--cal";
+    document.body.appendChild(t);
+  }
+  t.textContent = `📐 ${msg}`;
+  t.classList.add("fp-toast--visible");
+  clearTimeout(_calToastTimer);
+  _calToastTimer = setTimeout(() => t.classList.remove("fp-toast--visible"), 5000);
 }
 
 async function _applyLiveLayout(layout) {

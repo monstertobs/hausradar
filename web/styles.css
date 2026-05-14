@@ -491,6 +491,58 @@ main {
   opacity:      .9;
 }
 
+/* ===== Kalibrierungsphasen (M24) ===== */
+
+/* none: kaum sichtbar – kein Signal vom Sensor */
+[data-cal-phase="none"] {
+  opacity: 0.30;
+}
+[data-cal-phase="none"] .room-rect {
+  stroke-dasharray: 8 5;
+}
+
+/* learning: gestrichelt, langsam pulsierend */
+[data-cal-phase="learning"] {
+  opacity: 0.65;
+  animation: cal-pulse 3s ease-in-out infinite;
+}
+[data-cal-phase="learning"] .room-rect {
+  stroke-dasharray: 5 3;
+}
+
+/* improving: leicht gedämpft, sehr weicher Puls */
+[data-cal-phase="improving"] {
+  animation: cal-pulse 6s ease-in-out infinite;
+}
+[data-cal-phase="improving"] .room-rect {
+  stroke-dasharray: 2 2;
+}
+
+/* confident: normal (kein Override nötig) */
+[data-cal-phase="confident"] .room-cal-hint {
+  display: none;
+}
+
+@keyframes cal-pulse {
+  0%, 100% { opacity: 1;    }
+  50%       { opacity: 0.6; }
+}
+
+.room-cal-hint {
+  fill:            var(--text-muted);
+  font-size:       8px;
+  pointer-events:  none;
+  opacity:         0.55;
+  font-style:      italic;
+}
+
+/* Toast-Variante für Kalibrierungs-Updates (grün) */
+.fp-toast--cal {
+  background:   #0f2318;
+  border-color: #22c55e;
+  color:        #22c55e;
+}
+
 /* ===== Dwell-Zonen (Möbel-Heatmap) ===== */
 
 .dwell-zone {
