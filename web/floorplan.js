@@ -90,9 +90,11 @@ class Floorplan {
   /** Animiert einen Personen-Transit von Raum A nach Raum B. */
   animateTransit(fromRoomId, toRoomId) {
     if (!this._svg || !this._transitLayer) return;
-    const a = this._roomCenter(fromRoomId);
-    const b = this._roomCenter(toRoomId);
-    if (!a || !b) return;
+    const ca = this._roomCenter(fromRoomId);
+    const cb = this._roomCenter(toRoomId);
+    if (!ca || !cb) return;
+    const a = this._roomEdgePoint(fromRoomId, cb.x, cb.y);
+    const b = this._roomEdgePoint(toRoomId,   ca.x, ca.y);
 
     const dot = this._el("circle", {
       cx: a.x, cy: a.y, r: 5,
@@ -121,6 +123,26 @@ class Floorplan {
     if (!room || !room.floorplan) return null;
     const fp = room.floorplan;
     return { x: fp.x + fp.width / 2, y: fp.y + fp.height / 2 };
+  }
+
+  /**
+   * Gibt den Punkt auf der Kante von roomId zurück, der am nächsten an (tx,ty) liegt.
+   * Damit starten/enden Verbindungslinien an der Raumgrenze statt in der Mitte.
+   */
+  _roomEdgePoint(roomId, tx, ty) {
+    const room = this._rooms.find(r => r.id === roomId);
+    if (!room || !room.floorplan) return null;
+    const { x, y, width, height } = room.floorplan;
+    const cx = x + width  / 2;
+    const cy = y + height / 2;
+    const dx = tx - cx;
+    const dy = ty - cy;
+    if (dx === 0 && dy === 0) return { x: cx, y: cy };
+    // Schnittpunkt des Vektors (cx,cy)→(tx,ty) mit dem Rechteck
+    const scaleX = dx !== 0 ? (width  / 2) / Math.abs(dx) : Infinity;
+    const scaleY = dy !== 0 ? (height / 2) / Math.abs(dy) : Infinity;
+    const scale  = Math.min(scaleX, scaleY);
+    return { x: cx + dx * scale, y: cy + dy * scale };
   }
 
   update(liveData) {
@@ -555,38 +577,35 @@ class Floorplan {
     while (this._connLayer.firstChild) this._connLayer.removeChild(this._connLayer.firstChild);
 
     for (const conn of this._connections) {
-      const a = this._roomCenter(conn.room_a);
-      const b = this._roomCenter(conn.room_b);
-      if (!a || !b) continue;
+      const ca = this._roomCenter(conn.room_a);
+      const cb = this._roomCenter(conn.room_b);
+      if (!ca || !cb) continue;
 
-      const opacity  = Math.max(0.15, conn.confidence);
-      const dashed   = !conn.confirmed;
+      // Linie von Wandkante zu Wandkante, nicht Mitte→Mitte
+      const a = this._roomEdgePoint(conn.room_a, cb.x, cb.y);
+      const b = this._roomEdgePoint(conn.room_b, ca.x, ca.y);
+
+      const opacity   = Math.max(0.2, conn.confidence);
       const lineAttrs = {
         x1: a.x, y1: a.y, x2: b.x, y2: b.y,
         class: "conn-line" + (conn.confirmed ? " conn-line--confirmed" : ""),
         "stroke-opacity": opacity,
       };
-      if (dashed) lineAttrs["stroke-dasharray"] = "4 3";
+      if (!conn.confirmed) lineAttrs["stroke-dasharray"] = "4 3";
       this._connLayer.appendChild(this._el("line", lineAttrs));
 
-      // Konfidenz-Badge in der Mitte der Linie
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
-      const label = conn.confirmed
-        ? "✓"
-        : `${conn.transition_count}/10`;
+      // Konfidenz-Badge mittig auf der Linie
+      const mx    = (a.x + b.x) / 2;
+      const my    = (a.y + b.y) / 2;
+      const label = conn.confirmed ? "✓" : `${conn.transition_count}/10`;
 
-      const bg = this._el("rect", {
+      this._connLayer.appendChild(this._el("rect", {
         x: mx - 9, y: my - 6, width: 18, height: 12,
         class: "conn-badge-bg", rx: 3,
-      });
-      this._connLayer.appendChild(bg);
-
+      }));
       const txt = this._el("text", {
-        x: mx, y: my,
-        class: "conn-badge",
-        "text-anchor": "middle",
-        "dominant-baseline": "middle",
+        x: mx, y: my, class: "conn-badge",
+        "text-anchor": "middle", "dominant-baseline": "middle",
       });
       txt.textContent = label;
       this._connLayer.appendChild(txt);
