@@ -122,6 +122,20 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- Auto-Kalibrierung                                         -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <section class="card" id="auto-cal-section">
+      <h2>AUTO-KALIBRIERUNG</h2>
+      <p class="muted" style="margin-bottom:16px">
+        Das System lernt <strong>rotation_deg</strong> und <strong>sensor_x</strong>
+        automatisch aus Bewegungsdaten. Nur die Raumgröße muss bekannt sein.<br>
+        Einfach im Raum bewegen – nach ~200 Messungen erscheint ein Vorschlag.
+      </p>
+      <div id="auto-cal-list">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
     <!-- Neue Kalibrierung                                         -->
     <!-- ══════════════════════════════════════════════════════════ -->
     <section class="card">
@@ -172,5 +186,6 @@
   <script src="calibrate-overview.js"></script>
   <script src="calibrate-editors.js"></script>
   <script src="calibrate-rooms.js"></script>
+  <script src="calibrate-auto.js"></script>
 </body>
 </html>

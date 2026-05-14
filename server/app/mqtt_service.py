@@ -22,6 +22,7 @@ from app import door_detector
 from app import transition_detector
 from app import orientation_detector
 from app import layout_engine
+from app import auto_calibration
 from app.websocket_service import manager as ws_manager
 
 # Letzte bekannte Track-IDs pro Sensor (für Exit-Erkennung)
@@ -178,8 +179,9 @@ class MqttService:
             for t in targets_raw:
                 if t.get("y_mm", -1) < 0:
                     continue
-                # Rohkoordinaten für Montage-Erkennung einspeisen
+                # Rohkoordinaten für Montage- und Auto-Kalibrierungs-Erkennung
                 orientation_detector.update(sensor_id, t["x_mm"], t["y_mm"])
+                auto_calibration.update(sensor_id, t["x_mm"], t["y_mm"])
                 tf = full_transform(sensor, room,
                                     {"x_mm": t["x_mm"], "y_mm": t["y_mm"]})
                 enriched.append({
