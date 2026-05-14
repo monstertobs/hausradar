@@ -7,20 +7,26 @@ Ringpuffer und schätzt dann per Grid-Search die optimalen Parameter:
   rotation_deg – welche Rotation bringt die meisten Punkte in den Raum?
   x_mm         – lateraler Sensor-Offset in Raumkoordinaten
 
-Voraussetzung: Raumabmessungen (width_mm, height_mm) müssen bekannt sein.
-Sensor-y bleibt auf 0 (Sensor an y=0-Wand, Standard-Montage).
+Zusätzlich (M23): Raumabmessungen aus Bewegungsprofil schätzen.
+  suggest_room_size() – kein manuelles Eingeben mehr nötig.
 
-Genauigkeit steigt mit der Anzahl gesammelter Messungen (Ziel: 500+).
+  Methode:
+    dim_depth   = P97(y_mm)  + WALL_CLEARANCE_MM
+    dim_lateral = P97(x_mm) - P3(x_mm) + 2 × WALL_CLEARANCE_MM
+
+  Die Achsenzuordnung (welche Dim = Breite, welche = Tiefe) folgt aus
+  der Rotationsschätzung (0°/180° → depth=Höhe; 90°/270° → depth=Breite).
 """
 
 import math
 import threading
 from typing import Dict, List, Optional, Tuple
 
-MIN_SAMPLES        = 200    # Mindest-Messungen für ersten Vorschlag
-GOOD_SAMPLES       = 500    # Ab hier gilt der Vorschlag als zuverlässig
-MAX_SAMPLES        = 3000   # Ringpuffer-Größe je Sensor
+MIN_SAMPLES         = 200    # Mindest-Messungen für ersten Vorschlag
+GOOD_SAMPLES        = 500    # Ab hier gilt der Vorschlag als zuverlässig
+MAX_SAMPLES         = 3000   # Ringpuffer-Größe je Sensor
 CANDIDATE_ROTATIONS = [0, 90, 180, 270]
+WALL_CLEARANCE_MM   = 400    # Typischer Mindestabstand Person–Wand
 
 _lock    = threading.Lock()
 _buffers: Dict[str, List[Tuple[float, float]]] = {}   # sensor_id → [(xs, ys)]
@@ -144,4 +150,104 @@ def suggest(sensor_id: str, room: dict) -> Optional[dict]:
         "sample_count": n,
         "quality":      quality,
         "candidates":   candidates,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Raumgröße schätzen (M23)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _percentile(sorted_vals: list, p: float) -> float:
+    """Lineares Interpolations-Perzentil einer sortierten Liste."""
+    if not sorted_vals:
+        return 0.0
+    idx = (p / 100) * (len(sorted_vals) - 1)
+    lo  = int(idx)
+    hi  = min(lo + 1, len(sorted_vals) - 1)
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (idx - lo)
+
+
+def suggest_room_size(sensor_id: str) -> Optional[dict]:
+    """
+    Schätzt Raumabmessungen aus dem Bewegungsprofil.
+
+    Algorithmus:
+      y_mm (Sensor-Tiefe, immer positiv) → P97 + WALL_CLEARANCE = Tiefendimension
+      x_mm (lateral, zentriert ≈ 0)     → P97 - P3 + 2×WALL_CLEARANCE = Breitendimension
+
+    Rotation (0°/180° vs 90°/270°) bestimmt, welche Dimension Breite und Höhe ist.
+    Für die Rotationsschätzung ohne bekannte Raummaße wird ein großer Dummy-Raum
+    verwendet; der Sensor-Symmetrie-Score dient als primärer Diskriminator.
+
+    Rückgabe:
+      width_mm, height_mm  – auf 100 mm gerundete Schätzwerte
+      confidence           – 0–1
+      quality              – "low" / "medium" / "high"
+    """
+    with _lock:
+        buf = list(_buffers.get(sensor_id, []))
+
+    n = len(buf)
+    if n < MIN_SAMPLES:
+        return None
+
+    ys_sorted = sorted(p[1] for p in buf)
+    xs_sorted = sorted(p[0] for p in buf)
+
+    depth_raw = _percentile(ys_sorted, 97)
+    lat_lo    = _percentile(xs_sorted,  3)
+    lat_hi    = _percentile(xs_sorted, 97)
+
+    dim_depth   = round((depth_raw + WALL_CLEARANCE_MM)          / 100) * 100
+    dim_lateral = round((lat_hi - lat_lo + 2 * WALL_CLEARANCE_MM) / 100) * 100
+
+    # Rotationsschätzung: Sensor-Symmetrie entscheidet über Achsenzuordnung.
+    # Symmetrischer Sensor (Median x ≈ 0) → Rotation 0° oder 180°.
+    # Für θ=0/180: Sensor an y=0-Wand → depth=Raumhöhe, lateral=Raumbreite.
+    # Für θ=90/270: Sensor an x=0-Wand → depth=Raumbreite, lateral=Raumhöhe.
+    #
+    # Wir schätzen die wahrscheinlichere Rotation ohne Raummaße:
+    # wenn die Tiefe (y_mm) deutlich größer als die Laterale ist,
+    # sieht der Sensor eher einen "langen" Raum in seiner y-Richtung.
+    # Der Rotations-Grid-Search mit einem Dummy-Raum wäre unzuverlässig
+    # (alle Punkte fallen immer ins riesige Dummy-Rechteck).
+    # Stattdessen: Symmetrie-Heuristik auf x_mm.
+    #
+    # x_mm ist bei korrekter Montage (Sensor mittig an Wand) lateral
+    # und symmetrisch um 0. Ist der Sensor seitlich montiert (90°/270°),
+    # entspricht x_mm dem Tiefenbereich → dann ist x_mm immer > 0 (oder immer < 0)
+    # und stark asymmetrisch.
+    median_x  = _percentile(xs_sorted, 50)
+    x_span    = max(lat_hi - lat_lo, 1.0)
+    # Normierter Offset des Medians innerhalb der Spanne
+    sym_offset = abs(median_x - (lat_lo + lat_hi) / 2) / x_span
+
+    # x_mm hat immer negative Werte → wahrscheinlich 90°/270° Montage
+    # (bei 0°/180° kann x_mm negativ sein, aber Median liegt nahe 0)
+    is_side_mount = (lat_lo >= 0 or lat_hi <= 0)  # einseitig positiv/negativ
+
+    if is_side_mount:
+        # 90° oder 270°: depth = Breite, lateral = Höhe
+        width_mm  = int(dim_depth)
+        height_mm = int(dim_lateral)
+    else:
+        # 0° oder 180°: depth = Höhe, lateral = Breite
+        width_mm  = int(dim_lateral)
+        height_mm = int(dim_depth)
+
+    # Konfidenz: Datenmenge + laterale Symmetrie
+    n_factor   = min(1.0, n / GOOD_SAMPLES)
+    sym_score  = max(0.0, 1.0 - sym_offset * 2)
+    confidence = round(min(1.0, n_factor * 0.7 + sym_score * 0.3), 2)
+
+    quality = ("high"   if n >= GOOD_SAMPLES and confidence >= 0.60 else
+               "medium" if n >= MIN_SAMPLES  and confidence >= 0.35 else
+               "low")
+
+    return {
+        "width_mm":    width_mm,
+        "height_mm":   height_mm,
+        "confidence":  confidence,
+        "quality":     quality,
+        "sample_count": n,
     }

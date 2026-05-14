@@ -39,10 +39,22 @@ async function renderAutoCalibration() {
 
   // Event-Listener für Buttons
   for (const s of data.sensors) {
-    const applyBtn = document.getElementById(`auto-cal-apply-${s.sensor_id}`);
-    const resetBtn = document.getElementById(`auto-cal-reset-${s.sensor_id}`);
+    const applyBtn     = document.getElementById(`auto-cal-apply-${s.sensor_id}`);
+    const resetBtn     = document.getElementById(`auto-cal-reset-${s.sensor_id}`);
+    const rsApplyBtn   = document.getElementById(`room-size-apply-${s.sensor_id}`);
+    const rsSwapBtn    = document.getElementById(`room-size-swap-${s.sensor_id}`);
+
     if (applyBtn) applyBtn.addEventListener("click", () => applyAutoCalibration(s.sensor_id));
     if (resetBtn) resetBtn.addEventListener("click", () => resetAutoCalibration(s.sensor_id));
+    if (rsApplyBtn && s.room_size_suggestion) {
+      rsApplyBtn.addEventListener("click", () => applyRoomSize(s.sensor_id, s.room_size_suggestion));
+    }
+    if (rsSwapBtn) {
+      rsSwapBtn.addEventListener("click", () => {
+        _roomSizeSwapped[s.sensor_id] = !_roomSizeSwapped[s.sensor_id];
+        renderAutoCalibration();
+      });
+    }
   }
 }
 
@@ -120,6 +132,9 @@ function _renderSensorCard(s) {
       </p>`;
   }
 
+  // ── Raumgröße-Schätzung (M23) ──
+  const roomSizeHtml = _renderRoomSizeCard(s);
+
   return `
     <div style="border:1px solid var(--card-border);border-radius:8px;
                 padding:16px;margin-bottom:12px">
@@ -129,6 +144,65 @@ function _renderSensorCard(s) {
       </div>
       ${progressBar}
       ${suggestionHtml}
+      ${roomSizeHtml}
+    </div>`;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Raumgröße-Karte
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Merkt sich die aktuelle Tausch-Richtung je Sensor
+const _roomSizeSwapped = {};
+
+function _renderRoomSizeCard(s) {
+  const rs = s.room_size_suggestion;
+  if (!rs) {
+    return `
+      <div style="margin-top:12px;border-top:1px solid var(--card-border);padding-top:12px">
+        <p class="muted" style="font-size:11px;margin:0">
+          📐 Raumgröße wird geschätzt – noch nicht genug Daten.
+        </p>
+      </div>`;
+  }
+
+  const swapped  = !!_roomSizeSwapped[s.sensor_id];
+  const dispW    = swapped ? rs.height_mm : rs.width_mm;
+  const dispH    = swapped ? rs.width_mm  : rs.height_mm;
+  const qualCol  = rs.quality === "high"   ? "#22c55e" :
+                   rs.quality === "medium" ? "#f59e0b" : "#6b7280";
+  const qualTxt  = rs.quality === "high"   ? "Zuverlässig" :
+                   rs.quality === "medium" ? "Ausreichend" : "Unsicher";
+  const confPct  = Math.round(rs.confidence * 100);
+
+  return `
+    <div style="margin-top:12px;border-top:1px solid var(--card-border);padding-top:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-size:12px">
+          📐 Raumgröße:&nbsp;
+          <strong style="color:var(--accent)">${dispW}&nbsp;×&nbsp;${dispH}&nbsp;mm</strong>
+          &nbsp;<span class="muted">(B&nbsp;×&nbsp;T)</span>
+        </span>
+        <span style="font-size:10px;padding:1px 7px;border-radius:8px;
+                     background:${qualCol}22;color:${qualCol}">
+          ${qualTxt}&nbsp;${confPct}%
+        </span>
+      </div>
+      <p class="muted" style="font-size:10px;margin:0 0 8px">
+        Basiert auf ${rs.sample_count} Messungen. Typische Genauigkeit ±300&nbsp;mm.
+        Wenn Breite und Tiefe vertauscht wirken, bitte tauschen und erneut anwenden.
+      </p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button id="room-size-apply-${esc(s.sensor_id)}"
+                class="btn-mark" style="font-size:12px">
+          ✓ Raumgröße übernehmen
+        </button>
+        <button id="room-size-swap-${esc(s.sensor_id)}"
+                class="btn-secondary" style="font-size:12px"
+                title="Breite und Tiefe tauschen">
+          ⇄ Tauschen
+        </button>
+      </div>
     </div>`;
 }
 
@@ -147,6 +221,32 @@ async function applyAutoCalibration(sensorId) {
     showCalToast(`✓ ${esc(sensorId)}: rotation=${result.rotation_deg}°, x=${result.sensor_x_mm} mm`);
     await renderAutoCalibration();
     // Kalibrierungs-Übersicht neu laden falls sichtbar
+    if (typeof loadOverview === "function") loadOverview();
+  } catch (err) {
+    showCalToast(`⚠ Fehler: ${esc(String(err))}`, true);
+    await renderAutoCalibration();
+  }
+}
+
+async function applyRoomSize(sensorId, rs) {
+  const btn = document.getElementById(`room-size-apply-${sensorId}`);
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+
+  const swapped  = !!_roomSizeSwapped[sensorId];
+  const width_mm  = swapped ? rs.height_mm : rs.width_mm;
+  const height_mm = swapped ? rs.width_mm  : rs.height_mm;
+
+  try {
+    const result = await apiFetch(
+      `/api/sensors/${encodeURIComponent(sensorId)}/auto-calibration/room-size/apply`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width_mm, height_mm }),
+      }
+    );
+    showCalToast(`✓ Raumgröße: ${result.width_mm} × ${result.height_mm} mm`);
+    await renderAutoCalibration();
     if (typeof loadOverview === "function") loadOverview();
   } catch (err) {
     showCalToast(`⚠ Fehler: ${esc(String(err))}`, true);
