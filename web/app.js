@@ -7,9 +7,9 @@ let floorplan    = null;
 let fpEditActive = false;
 const fpEditBtn  = document.getElementById("fp-edit-btn");
 
-function initFloorplan(rooms, sensors) {
+function initFloorplan(rooms, sensors, connections) {
   floorplan = new Floorplan("floorplan-container");
-  floorplan.init(rooms, sensors);
+  floorplan.init(rooms, sensors, connections || []);
 }
 
 fpEditBtn?.addEventListener("click", () => {
@@ -72,6 +72,11 @@ function _setWsStatus(state) {
 function handleLiveUpdate(data) {
   if (floorplan) floorplan.update(data);
   if (data.sensors) _updateStatusBar(data.sensors);
+  if (data.events && floorplan) {
+    for (const ev of data.events) {
+      if (ev.type === "transit") floorplan.animateTransit(ev.from_room, ev.to_room);
+    }
+  }
 }
 
 // ============================================================
@@ -125,9 +130,13 @@ function _renderStatusBar(roomStatus) {
 // ============================================================
 async function init() {
   try {
-    const [rooms, sensors] = await Promise.all([API.rooms(), API.sensors()]);
+    const [rooms, sensors, connData] = await Promise.all([
+      API.rooms(),
+      API.sensors(),
+      API.connections.list().catch(() => ({ connections: [] })),
+    ]);
     _buildStatusBar(rooms, sensors);
-    initFloorplan(rooms, sensors);
+    initFloorplan(rooms, sensors, connData.connections || []);
   } catch (err) {
     console.error("Initialisierungsfehler:", err);
     // Fehlerzustand im Grundriss anzeigen

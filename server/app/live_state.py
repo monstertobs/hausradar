@@ -5,11 +5,31 @@ Da FastAPI in einem einzigen Prozess läuft und Python's GIL einfache
 dict-Zugriffe atomar hält, ist dieser Ansatz für unsere Nutzlast sicher.
 """
 
+import threading
 import time
-from typing import Optional
+from typing import List, Optional
 
 # sensor_id → angereichertes Zustandsdict + interner Zeitstempel
 _state: dict = {}
+
+# Kurzzeitig gepufferte Events (Transit-Animationen) für den nächsten WS-Broadcast
+_events: List[dict] = []
+_events_lock = threading.Lock()
+
+
+def push_event(event: dict) -> None:
+    """Fügt ein einmaliges Event (z.B. Transit) in den nächsten Broadcast ein."""
+    with _events_lock:
+        _events.append(event)
+        if len(_events) > 100:
+            del _events[0]
+
+
+def _pop_events() -> List[dict]:
+    with _events_lock:
+        evts = list(_events)
+        _events.clear()
+        return evts
 
 
 def build_response(offline_timeout_s: float = 15.0) -> dict:
@@ -28,6 +48,7 @@ def build_response(offline_timeout_s: float = 15.0) -> dict:
         "timestamp_ms": int(time.time() * 1000),
         "sensor_count": len(sensors_out),
         "sensors":      sensors_out,
+        "events":       _pop_events(),
     }
 
 
@@ -63,3 +84,5 @@ def mark_offline(sensor_id: str) -> None:
 def clear() -> None:
     """Leert den State – nur für Tests."""
     _state.clear()
+    with _events_lock:
+        _events.clear()

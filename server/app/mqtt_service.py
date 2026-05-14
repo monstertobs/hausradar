@@ -19,6 +19,8 @@ from app import database as db
 from app import live_state
 from app import tracker as person_tracker
 from app import door_detector
+from app import transition_detector
+from app import orientation_detector
 from app.websocket_service import manager as ws_manager
 
 # Letzte bekannte Track-IDs pro Sensor (für Exit-Erkennung)
@@ -169,6 +171,8 @@ class MqttService:
             for t in targets_raw:
                 if t.get("y_mm", -1) < 0:
                     continue
+                # Rohkoordinaten für Montage-Erkennung einspeisen
+                orientation_detector.update(sensor_id, t["x_mm"], t["y_mm"])
                 tf = full_transform(sensor, room,
                                     {"x_mm": t["x_mm"], "y_mm": t["y_mm"]})
                 enriched.append({
@@ -268,6 +272,7 @@ class MqttService:
                         t["room_x_mm"], t["room_y_mm"],
                         room_w, room_h,
                     )
+                    transition_detector.record_exit(room_id)
 
             # Exit-Variante 2: Track noch da, aber gerade aus Raumgrenze heraus
             # Nutzt letzte bekannte Position IN der Raumgrenze (prev-Frame)
@@ -280,22 +285,28 @@ class MqttService:
                 was_inside = t_prev.get("inside_room", True)
                 is_inside  = t_curr.get("inside_room", True)
                 if was_inside and not is_inside:
-                    # Letzte Position innerhalb des Raums (prev-Frame) als Exit-Punkt
                     door_detector.record_exit(
                         room_id,
                         t_prev["room_x_mm"], t_prev["room_y_mm"],
                         room_w, room_h,
                     )
+                    transition_detector.record_exit(room_id)
 
             # Eintritte: neue echte Tracks (vorher weder real noch Ghost)
             # ODER Track war draußen und ist jetzt (wieder) drinnen
             for tid, t in curr_real.items():
                 if tid not in prev_all:
                     door_detector.record_entry(room_id, t["room_x_mm"], t["room_y_mm"])
+                    transit = transition_detector.record_entry(room_id)
+                    if transit:
+                        live_state.push_event(transit)
                 else:
                     t_prev = prev_all[tid]
                     if not t_prev.get("inside_room", True) and t.get("inside_room", True):
                         door_detector.record_entry(room_id, t["room_x_mm"], t["room_y_mm"])
+                        transit = transition_detector.record_entry(room_id)
+                        if transit:
+                            live_state.push_event(transit)
 
             _prev_track_ids[sensor_id + ":all"]  = curr_all
             _prev_track_ids[sensor_id + ":real"] = curr_real

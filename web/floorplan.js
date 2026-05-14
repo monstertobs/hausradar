@@ -27,10 +27,13 @@ class Floorplan {
     this._svg         = null;
     this._rooms       = [];
     this._sensors     = [];
+    this._connections = [];   // gelernte Verbindungen aus API
     this._roomRects   = {};   // room_id → <rect> element
     this._roomScales  = {};   // room_id → { fp, scX, scY, room }
+    this._connLayer   = null; // SVG-Gruppe für Verbindungslinien
     this._trailLayer  = null;
     this._targetLayer = null;
+    this._transitLayer = null; // SVG-Gruppe für Transit-Animationen
     this._roomLastActive = {}; // room_id → Date.now()
     this._trails      = {};   // "sensorId.targetId" → [{x, y, ts}]
     this.recentTimeoutMs = 30_000;
@@ -49,10 +52,52 @@ class Floorplan {
   // Öffentliche API
   // ----------------------------------------------------------------
 
-  init(rooms, sensors) {
-    this._rooms   = rooms;
-    this._sensors = sensors;
+  init(rooms, sensors, connections) {
+    this._rooms       = rooms;
+    this._sensors     = sensors;
+    this._connections = connections || [];
     this._build();
+  }
+
+  updateConnections(connections) {
+    this._connections = connections || [];
+    if (this._connLayer) this._renderConnections();
+  }
+
+  /** Animiert einen Personen-Transit von Raum A nach Raum B. */
+  animateTransit(fromRoomId, toRoomId) {
+    if (!this._svg || !this._transitLayer) return;
+    const a = this._roomCenter(fromRoomId);
+    const b = this._roomCenter(toRoomId);
+    if (!a || !b) return;
+
+    const dot = this._el("circle", {
+      cx: a.x, cy: a.y, r: 5,
+      class: "transit-dot",
+    });
+    this._transitLayer.appendChild(dot);
+
+    const dur    = 900;
+    const start  = performance.now();
+    const animate = (now) => {
+      const t = Math.min((now - start) / dur, 1);
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      dot.setAttribute("cx", a.x + (b.x - a.x) * ease);
+      dot.setAttribute("cy", a.y + (b.y - a.y) * ease);
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        dot.remove();
+      }
+    };
+    requestAnimationFrame(animate);
+  }
+
+  _roomCenter(roomId) {
+    const room = this._rooms.find(r => r.id === roomId);
+    if (!room || !room.floorplan) return null;
+    const fp = room.floorplan;
+    return { x: fp.x + fp.width / 2, y: fp.y + fp.height / 2 };
   }
 
   update(liveData) {
@@ -456,6 +501,11 @@ class Floorplan {
     // Räume (unterste Ebene)
     for (const room of this._rooms) this._buildRoom(svg, room);
 
+    // Verbindungslinien (über Räumen, unter Sensoren)
+    this._connLayer = this._el("g", { class: "conn-layer" });
+    svg.appendChild(this._connLayer);
+    this._renderConnections();
+
     // Sensoren (mittlere Ebene)
     for (const sensor of this._sensors) {
       if (sensor.enabled !== false) this._buildSensor(svg, sensor);
@@ -465,13 +515,59 @@ class Floorplan {
     this._trailLayer = this._el("g", { class: "trail-layer" });
     svg.appendChild(this._trailLayer);
 
-    // Ziel-Ebene (oberste Ebene – wird bei jedem Update geleert)
+    // Ziel-Ebene (wird bei jedem Update geleert)
     this._targetLayer = this._el("g", { class: "target-layer" });
     svg.appendChild(this._targetLayer);
+
+    // Transit-Animations-Ebene (ganz oben)
+    this._transitLayer = this._el("g", { class: "transit-layer" });
+    svg.appendChild(this._transitLayer);
 
     this._svg = svg;
     this._container.innerHTML = "";
     this._container.appendChild(svg);
+  }
+
+  _renderConnections() {
+    while (this._connLayer.firstChild) this._connLayer.removeChild(this._connLayer.firstChild);
+
+    for (const conn of this._connections) {
+      const a = this._roomCenter(conn.room_a);
+      const b = this._roomCenter(conn.room_b);
+      if (!a || !b) continue;
+
+      const opacity  = Math.max(0.15, conn.confidence);
+      const dashed   = !conn.confirmed;
+      const lineAttrs = {
+        x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+        class: "conn-line" + (conn.confirmed ? " conn-line--confirmed" : ""),
+        "stroke-opacity": opacity,
+      };
+      if (dashed) lineAttrs["stroke-dasharray"] = "4 3";
+      this._connLayer.appendChild(this._el("line", lineAttrs));
+
+      // Konfidenz-Badge in der Mitte der Linie
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      const label = conn.confirmed
+        ? "✓"
+        : `${conn.transition_count}/10`;
+
+      const bg = this._el("rect", {
+        x: mx - 9, y: my - 6, width: 18, height: 12,
+        class: "conn-badge-bg", rx: 3,
+      });
+      this._connLayer.appendChild(bg);
+
+      const txt = this._el("text", {
+        x: mx, y: my,
+        class: "conn-badge",
+        "text-anchor": "middle",
+        "dominant-baseline": "middle",
+      });
+      txt.textContent = label;
+      this._connLayer.appendChild(txt);
+    }
   }
 
   _buildRoom(svg, room) {

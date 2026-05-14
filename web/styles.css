@@ -459,6 +459,38 @@ main {
   opacity: .40;
 }
 
+/* ===== Gelernte Verbindungen ===== */
+
+.conn-line {
+  stroke:       #f59e0b;
+  stroke-width: 2;
+  fill:         none;
+}
+.conn-line--confirmed {
+  stroke-width: 2.5;
+}
+.conn-badge-bg {
+  fill: #1a1f2e;
+  stroke: #f59e0b;
+  stroke-width: .8;
+  opacity: .9;
+}
+.conn-badge {
+  fill:       #f59e0b;
+  font-size:  7px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ===== Transit-Animation ===== */
+
+.transit-dot {
+  fill:         #fff;
+  stroke:       #f59e0b;
+  stroke-width: 2;
+  filter:       url(#fp-glow);
+  opacity:      .9;
+}
+
 /* ===== Floorplan Edit-Modus ===== */
 
 /* Karten-Header mit Titel + Button nebeneinander */

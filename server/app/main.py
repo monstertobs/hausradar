@@ -15,11 +15,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from app.config import load_rooms, load_sensors, load_settings
-from app.api import rooms, sensors, motion, history, profile, calibrate, update, doors
+from app.api import rooms, sensors, motion, history, profile, calibrate, update, doors, connections
 from app.version import __version__
 from app.websocket_service import manager as ws_manager
 from app import database as db
 from app import live_state
+from app import transition_detector
 from app.mqtt_service import service as mqtt_service
 
 logging.basicConfig(
@@ -145,6 +146,9 @@ async def lifespan(app: FastAPI):
     db.cleanup_old_data(db_path, db_cfg.get("retention_days", 30))
     app.state.db_path = db_path
 
+    transition_detector.load()
+    logger.info("Gelernte Verbindungen geladen: %d", len(transition_detector.get_connections()))
+
     # API-Key aus Konfiguration laden
     _API_KEY = app.state.settings.get("server", {}).get("api_key") or None
     if _API_KEY:
@@ -185,14 +189,15 @@ app.add_middleware(
                        # der Wert aus settings.json ist für Logging und Tests erreichbar
 )
 
-app.include_router(rooms.router,     prefix="/api")
-app.include_router(sensors.router,   prefix="/api")
-app.include_router(motion.router,    prefix="/api")
-app.include_router(history.router,   prefix="/api")
-app.include_router(profile.router,   prefix="/api")
-app.include_router(calibrate.router, prefix="/api")
-app.include_router(update.router,   prefix="/api")
-app.include_router(doors.router,    prefix="/api")
+app.include_router(rooms.router,       prefix="/api")
+app.include_router(sensors.router,     prefix="/api")
+app.include_router(motion.router,      prefix="/api")
+app.include_router(history.router,     prefix="/api")
+app.include_router(profile.router,     prefix="/api")
+app.include_router(calibrate.router,   prefix="/api")
+app.include_router(update.router,      prefix="/api")
+app.include_router(doors.router,       prefix="/api")
+app.include_router(connections.router, prefix="/api")
 
 
 @app.get("/api/live")

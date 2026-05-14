@@ -47,6 +47,17 @@ const API = {
   rooms:   () => apiFetch("/api/rooms"),
   sensors: () => apiFetch("/api/sensors"),
 
+  connections: {
+    list:   ()    => apiFetch("/api/connections"),
+    delete: (id)  => apiFetch(`/api/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    reset:  (id)  => apiFetch(`/api/connections/${encodeURIComponent(id)}/reset`, { method: "POST" }),
+  },
+
+  orientations: {
+    all:    ()    => apiFetch("/api/sensors/orientations"),
+    sensor: (id)  => apiFetch(`/api/sensors/${encodeURIComponent(id)}/orientation`),
+  },
+
   profile: {
     hourly:  (qs) => apiFetch(`/api/profile/hourly?${qs}`),
     heatmap: (qs) => apiFetch(`/api/profile/heatmap?${qs}`),
