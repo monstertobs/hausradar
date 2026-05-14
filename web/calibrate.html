@@ -122,6 +122,28 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- Möbel-Erkennung (M22)                                     -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <section class="card" id="furniture-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  margin-bottom:12px;flex-wrap:wrap;gap:10px">
+        <div>
+          <h2 style="margin:0">MÖBEL-ERKENNUNG</h2>
+          <p class="muted" style="margin:4px 0 0;font-size:.82rem">
+            HausRadar erkennt automatisch Orte an denen du dich regelmäßig aufhältst
+            und schlägt Möbeltypen vor (Sofa, Stuhl, Tisch, Schreibtisch, Bett).
+          </p>
+        </div>
+        <button class="btn-secondary" id="btn-refresh-furniture" style="font-size:.8rem">
+          ↺ Aktualisieren
+        </button>
+      </div>
+      <div id="furniture-zones-body">
+        <p class="muted">Lade …</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
     <!-- Auto-Kalibrierung                                         -->
     <!-- ══════════════════════════════════════════════════════════ -->
     <section class="card" id="auto-cal-section">
@@ -187,5 +209,9 @@
   <script src="calibrate-editors.js"></script>
   <script src="calibrate-rooms.js"></script>
   <script src="calibrate-auto.js"></script>
+  <script src="calibrate-furniture.js"></script>
+  <script>
+    document.getElementById("btn-refresh-furniture")?.addEventListener("click", renderFurnitureList);
+  </script>
 </body>
 </html>

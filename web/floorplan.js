@@ -31,6 +31,8 @@ class Floorplan {
     this._roomRects   = {};   // room_id → <rect> element
     this._roomScales  = {};   // room_id → { fp, scX, scY, room }
     this._connLayer   = null; // SVG-Gruppe für Verbindungslinien
+    this._dwellLayer  = null; // SVG-Gruppe für Dwell-Zonen (Möbel-Heatmap)
+    this._dwellZones  = [];   // aktuelle Dwell-Zonen
     this._trailLayer  = null;
     this._targetLayer = null;
     this._transitLayer = null; // SVG-Gruppe für Transit-Animationen
@@ -62,6 +64,11 @@ class Floorplan {
   updateConnections(connections) {
     this._connections = connections || [];
     if (this._connLayer) this._renderConnections();
+  }
+
+  updateDwellZones(zones) {
+    this._dwellZones = zones || [];
+    if (this._dwellLayer) this._renderDwellZones();
   }
 
   /** Baut den Grundriss mit neuen Raum-Positionen neu auf (Fade-Übergang). */
@@ -546,6 +553,11 @@ class Floorplan {
     // Räume (unterste Ebene)
     for (const room of this._rooms) this._buildRoom(svg, room);
 
+    // Dwell-Zonen (direkt über Raumflächen, halbtransparent)
+    this._dwellLayer = this._el("g", { class: "dwell-layer" });
+    svg.appendChild(this._dwellLayer);
+    this._renderDwellZones();
+
     // Verbindungslinien (über Räumen, unter Sensoren)
     this._connLayer = this._el("g", { class: "conn-layer" });
     svg.appendChild(this._connLayer);
@@ -571,6 +583,61 @@ class Floorplan {
     this._svg = svg;
     this._container.innerHTML = "";
     this._container.appendChild(svg);
+  }
+
+  _renderDwellZones() {
+    while (this._dwellLayer.firstChild) this._dwellLayer.removeChild(this._dwellLayer.firstChild);
+
+    const TYPE_COLORS = {
+      sofa:  "#f59e0b",
+      chair: "#22c55e",
+      table: "#3b82f6",
+      desk:  "#8b5cf6",
+      bed:   "#ec4899",
+      other: "#6b7280",
+    };
+
+    for (const zone of this._dwellZones) {
+      const room = this._rooms.find(r => r.id === zone.room_id);
+      if (!room || !room.floorplan) continue;
+      const fp  = room.floorplan;
+      const scX = fp.width  / room.width_mm;
+      const scY = fp.height / room.height_mm;
+
+      const cx = fp.x + zone.center_x * scX;
+      const cy = fp.y + zone.center_y * scY;
+      const r  = Math.max(4, zone.radius_mm * Math.min(scX, scY));
+
+      const color   = TYPE_COLORS[zone.suggested_type] || TYPE_COLORS.other;
+      const alpha   = (0.12 + zone.confidence * 0.2).toFixed(2);
+      const label   = zone.confirmed_type || zone.suggested_type;
+      const confPct = Math.round(zone.confidence * 100);
+
+      // Halo-Kreis
+      const circle = this._el("circle", {
+        cx, cy, r,
+        fill: color,
+        "fill-opacity": alpha,
+        stroke: color,
+        "stroke-opacity": (0.3 + zone.confidence * 0.4).toFixed(2),
+        "stroke-width": 1,
+        class: "dwell-zone",
+      });
+      this._dwellLayer.appendChild(circle);
+
+      // Typ-Label (nur wenn Radius groß genug)
+      if (r > 10) {
+        const txt = this._el("text", {
+          x: cx, y: cy,
+          class: "dwell-label",
+          "text-anchor": "middle",
+          "dominant-baseline": "middle",
+          "pointer-events": "none",
+        });
+        txt.textContent = `${label} ${confPct}%`;
+        this._dwellLayer.appendChild(txt);
+      }
+    }
   }
 
   _renderConnections() {

@@ -58,6 +58,17 @@ const API = {
     sensor: (id)  => apiFetch(`/api/sensors/${encodeURIComponent(id)}/orientation`),
   },
 
+  furniture: {
+    zones:  (roomId) => apiFetch(`/api/furniture/zones${roomId ? "?room_id=" + encodeURIComponent(roomId) : ""}`),
+    delete: (id)     => apiFetch(`/api/furniture/zones/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    patch:  (id, body) => apiFetch(`/api/furniture/zones/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    prune:  ()       => apiFetch("/api/furniture/prune", { method: "POST" }),
+  },
+
   profile: {
     hourly:  (qs) => apiFetch(`/api/profile/hourly?${qs}`),
     heatmap: (qs) => apiFetch(`/api/profile/heatmap?${qs}`),

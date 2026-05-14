@@ -491,6 +491,18 @@ main {
   opacity:      .9;
 }
 
+/* ===== Dwell-Zonen (Möbel-Heatmap) ===== */
+
+.dwell-zone {
+  pointer-events: none;
+}
+
+.dwell-label {
+  fill:      var(--text-muted);
+  font-size: 6px;
+  pointer-events: none;
+}
+
 /* ===== Floorplan Edit-Modus ===== */
 
 /* Karten-Header mit Titel + Button nebeneinander */

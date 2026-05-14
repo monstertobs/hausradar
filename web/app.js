@@ -149,6 +149,19 @@ function _renderStatusBar(roomStatus) {
 }
 
 // ============================================================
+// Dwell-Zonen (Möbel-Erkennung)
+// ============================================================
+const DWELL_REFRESH_MS = 30_000;
+let _dwellTimer = null;
+
+async function _loadDwellZones() {
+  try {
+    const data = await API.furniture.zones();
+    if (floorplan) floorplan.updateDwellZones(data.zones || []);
+  } catch (_) {}
+}
+
+// ============================================================
 // Init
 // ============================================================
 async function init() {
@@ -160,6 +173,8 @@ async function init() {
     ]);
     _buildStatusBar(rooms, sensors);
     initFloorplan(rooms, sensors, connData.connections || []);
+    await _loadDwellZones();
+    _dwellTimer = setInterval(_loadDwellZones, DWELL_REFRESH_MS);
   } catch (err) {
     console.error("Initialisierungsfehler:", err);
     // Fehlerzustand im Grundriss anzeigen

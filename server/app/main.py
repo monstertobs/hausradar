@@ -15,12 +15,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from app.config import load_rooms, load_sensors, load_settings
-from app.api import rooms, sensors, motion, history, profile, calibrate, update, doors, connections, auto_calibration as auto_cal_api
+from app.api import rooms, sensors, motion, history, profile, calibrate, update, doors, connections, auto_calibration as auto_cal_api, furniture_suggestions as furniture_api
 from app.version import __version__
 from app.websocket_service import manager as ws_manager
 from app import database as db
 from app import live_state
 from app import transition_detector
+from app import furniture_detector
 from app.mqtt_service import service as mqtt_service
 
 logging.basicConfig(
@@ -149,6 +150,9 @@ async def lifespan(app: FastAPI):
     transition_detector.load()
     logger.info("Gelernte Verbindungen geladen: %d", len(transition_detector.get_connections()))
 
+    furniture_detector.load()
+    logger.info("Dwell-Zonen geladen: %d", len(furniture_detector.get_zones()))
+
     # API-Key aus Konfiguration laden
     _API_KEY = app.state.settings.get("server", {}).get("api_key") or None
     if _API_KEY:
@@ -199,6 +203,7 @@ app.include_router(update.router,      prefix="/api")
 app.include_router(doors.router,       prefix="/api")
 app.include_router(connections.router,  prefix="/api")
 app.include_router(auto_cal_api.router, prefix="/api")
+app.include_router(furniture_api.router, prefix="/api")
 
 
 @app.get("/api/live")

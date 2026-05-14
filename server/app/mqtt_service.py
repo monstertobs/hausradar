@@ -23,6 +23,7 @@ from app import transition_detector
 from app import orientation_detector
 from app import layout_engine
 from app import auto_calibration
+from app import furniture_detector
 from app.websocket_service import manager as ws_manager
 
 # Letzte bekannte Track-IDs pro Sensor (für Exit-Erkennung)
@@ -348,6 +349,14 @@ class MqttService:
 
             if _new_transit and app is not None:
                 self._maybe_push_layout_update(app)
+
+            # Möbel-Dwell-Erkennung: verschwundene echte Tracks melden
+            disappeared_real = [tid for tid in prev_real if tid not in curr_real]
+            furniture_detector.update_tracks(
+                sensor_id, room_id,
+                list(curr_real.values()),
+                disappeared_real,
+            )
 
             _prev_track_ids[sensor_id + ":all"]  = curr_all
             _prev_track_ids[sensor_id + ":real"] = curr_real
