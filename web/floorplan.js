@@ -558,6 +558,7 @@ class Floorplan {
         </feMerge>
       </filter>`;
     svg.appendChild(defs);
+    this._defs = defs;
 
     // Hintergrund
     svg.appendChild(this._el("rect", {
@@ -602,56 +603,72 @@ class Floorplan {
   _renderDwellZones() {
     while (this._dwellLayer.firstChild) this._dwellLayer.removeChild(this._dwellLayer.firstChild);
 
+    // Alte Dwell-Gradienten aus defs entfernen
+    if (this._defs) {
+      Array.from(this._defs.querySelectorAll("[id^='dwell-grad-']")).forEach(n => n.remove());
+    }
+
     const TYPE_COLORS = {
-      sofa:  "#f59e0b",
-      chair: "#22c55e",
-      table: "#3b82f6",
-      desk:  "#8b5cf6",
-      bed:   "#ec4899",
-      other: "#6b7280",
+      sofa:  "251,146,60",   // amber-400
+      chair: "74,222,128",   // green-400
+      table: "96,165,250",   // blue-400
+      desk:  "167,139,250",  // violet-400
+      bed:   "244,114,182",  // pink-400
+      other: "148,163,184",  // slate-400
+    };
+    const TYPE_LABELS = {
+      sofa: "Sofa", chair: "Stuhl / Sessel", table: "Tisch",
+      desk: "Schreibtisch", bed: "Bett", other: "Möbel",
     };
 
-    for (const zone of this._dwellZones) {
+    this._dwellZones.forEach((zone, i) => {
       const room = this._rooms.find(r => r.id === zone.room_id);
-      if (!room || !room.floorplan) continue;
+      if (!room || !room.floorplan) return;
       const fp  = room.floorplan;
       const scX = fp.width  / room.width_mm;
       const scY = fp.height / room.height_mm;
 
       const cx = fp.x + zone.center_x * scX;
       const cy = fp.y + zone.center_y * scY;
-      const r  = Math.max(4, zone.radius_mm * Math.min(scX, scY));
+      // Heatmap-Radius etwas größer als der echte Zonen-Radius für weichere Kanten
+      const r  = Math.max(8, zone.radius_mm * Math.min(scX, scY) * 1.4);
 
-      const color   = TYPE_COLORS[zone.suggested_type] || TYPE_COLORS.other;
-      const alpha   = (0.12 + zone.confidence * 0.2).toFixed(2);
-      const label   = zone.confirmed_type || zone.suggested_type;
-      const confPct = Math.round(zone.confidence * 100);
+      const rgb     = TYPE_COLORS[zone.suggested_type] || TYPE_COLORS.other;
+      const conf    = zone.confidence;
+      // Zentrums-Deckkraft: 0.18–0.32 je nach Konfidenz
+      const alpha0  = (0.18 + conf * 0.14).toFixed(3);
+      const gradId  = `dwell-grad-${i}`;
 
-      // Halo-Kreis
+      // Radialer Gradient in defs
+      if (this._defs) {
+        const grad = document.createElementNS("http://www.w3.org/2000/svg", "radialGradient");
+        grad.setAttribute("id", gradId);
+        grad.setAttribute("cx", "50%");
+        grad.setAttribute("cy", "50%");
+        grad.setAttribute("r",  "50%");
+        grad.innerHTML = `
+          <stop offset="0%"   stop-color="rgb(${rgb})" stop-opacity="${alpha0}"/>
+          <stop offset="60%"  stop-color="rgb(${rgb})" stop-opacity="${(alpha0 * 0.4).toFixed(3)}"/>
+          <stop offset="100%" stop-color="rgb(${rgb})" stop-opacity="0"/>`;
+        this._defs.appendChild(grad);
+      }
+
+      const label   = TYPE_LABELS[zone.confirmed_type || zone.suggested_type] || "Möbel";
+      const confPct = Math.round(conf * 100);
+      const tooltip = `${label} · ${confPct}% Konfidenz`;
+
       const circle = this._el("circle", {
         cx, cy, r,
-        fill: color,
-        "fill-opacity": alpha,
-        stroke: color,
-        "stroke-opacity": (0.3 + zone.confidence * 0.4).toFixed(2),
-        "stroke-width": 1,
+        fill: `url(#${gradId})`,
         class: "dwell-zone",
       });
-      this._dwellLayer.appendChild(circle);
 
-      // Typ-Label (nur wenn Radius groß genug)
-      if (r > 10) {
-        const txt = this._el("text", {
-          x: cx, y: cy,
-          class: "dwell-label",
-          "text-anchor": "middle",
-          "dominant-baseline": "middle",
-          "pointer-events": "none",
-        });
-        txt.textContent = `${label} ${confPct}%`;
-        this._dwellLayer.appendChild(txt);
-      }
-    }
+      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      title.textContent = tooltip;
+      circle.appendChild(title);
+
+      this._dwellLayer.appendChild(circle);
+    });
   }
 
   _renderConnections() {

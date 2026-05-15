@@ -38,7 +38,7 @@ import uuid
 
 DWELL_RADIUS_MM  = 400   # Person gilt als "sitzend/stehend" wenn Bewegung < 400mm
 MIN_DWELL_S      = 8.0   # Mindest-Verweildauer für ein Event (Sekunden)
-CLUSTER_RADIUS_MM = 600  # Zwei Events innerhalb 600mm → gleiche Zone
+CLUSTER_RADIUS_MM = 1000  # Zwei Events innerhalb 1000mm → gleiche Zone
 MAX_ZONES        = 200   # Maximale Zonen pro Raum
 ZONE_DECAY_DAYS  = 90    # Zonen ohne Besuche > 90 Tage werden entfernt
 
@@ -257,18 +257,28 @@ def _classify(zone: dict) -> None:
 # Öffentliche API
 # ──────────────────────────────────────────────────────────────────────────────
 
+_MIN_CONFIDENCE   = 0.50  # Zonen unterhalb dieser Schwelle werden nicht ausgegeben
+_MAX_ZONES_ROOM   = 8     # Maximal N Zonen pro Raum (nach Konfidenz sortiert)
+
 def get_zones(room_id: Optional[str] = None) -> List[dict]:
-    """Gibt Zonen zurück (ohne interne _points-Liste)."""
+    """Gibt Zonen zurück – gefiltert nach Konfidenz, max N pro Raum."""
     with _lock:
-        result = []
+        by_room: Dict[str, List[dict]] = {}
         for z in _zones:
             if room_id and z["room_id"] != room_id:
+                continue
+            if z.get("confidence", 0) < _MIN_CONFIDENCE:
                 continue
             public = {k: v for k, v in z.items() if not k.startswith("_")}
             public["avg_dwell_s"] = round(
                 z["total_dwell_s"] / max(z["visit_count"], 1), 1
             )
-            result.append(public)
+            by_room.setdefault(z["room_id"], []).append(public)
+
+        result = []
+        for zones_in_room in by_room.values():
+            zones_in_room.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+            result.extend(zones_in_room[:_MAX_ZONES_ROOM])
         return result
 
 

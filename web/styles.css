@@ -546,13 +546,13 @@ main {
 /* ===== Dwell-Zonen (Möbel-Heatmap) ===== */
 
 .dwell-zone {
-  pointer-events: none;
+  pointer-events: all;
+  cursor: default;
+  transition: opacity 0.3s;
 }
-
-.dwell-label {
-  fill:      var(--text-muted);
-  font-size: 6px;
-  pointer-events: none;
+.dwell-zone:hover {
+  opacity: 1.5; /* Browser clampt auf 1 – macht Hover etwas sichtbarer */
+  filter: brightness(1.4);
 }
 
 /* ===== Floorplan Edit-Modus ===== */
