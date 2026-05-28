@@ -24,7 +24,6 @@ _CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "learned_connect
 _lock          = threading.Lock()
 _pending_exits: List[dict] = []   # [{room_id, ts}]
 _connections:   List[dict] = []   # persistierte Verbindungen
-_pending_events: List[dict] = []  # transit events für WS-Broadcast
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -117,22 +116,14 @@ def record_entry(room_id: str) -> Optional[dict]:
 
         _save()
 
-        event = {
+        # Das Event wird vom Aufrufer über live_state.push_event() in den
+        # nächsten WS-Broadcast eingebettet.
+        return {
             "type":      "transit",
             "from_room": room_a,
             "to_room":   room_b,
             "ts_ms":     int(now * 1000),
         }
-        _pending_events.append(event)
-        return event
-
-
-def pop_events() -> List[dict]:
-    """Gibt alle aufgelaufenen Transit-Events zurück und leert die Queue."""
-    with _lock:
-        evts = list(_pending_events)
-        _pending_events.clear()
-        return evts
 
 
 def get_connections() -> List[dict]:

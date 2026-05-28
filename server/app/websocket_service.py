@@ -6,6 +6,7 @@ sendet bei jedem neuen Bewegungsdatensatz ein Update an alle.
 Fehlerhafte Verbindungen werden automatisch entfernt.
 """
 
+import json
 import logging
 from typing import List
 
@@ -47,13 +48,19 @@ class ConnectionManager:
     async def broadcast(self, data: dict) -> None:
         """Sendet data als JSON an alle verbundenen Clients.
 
+        Das JSON wird genau einmal serialisiert und als Text an alle Clients
+        gesendet – auf dem Pi Zero 2 W spart das pro Broadcast n-1 dumps().
+
         Clients, die beim Senden einen Fehler erzeugen, werden
         stillschweigend entfernt – sie dürfen den Server nicht crashen.
         """
+        if not self._connections:
+            return
+        text = json.dumps(data, separators=(",", ":"))
         dead: List[WebSocket] = []
         for ws in list(self._connections):
             try:
-                await ws.send_json(data)
+                await ws.send_text(text)
             except Exception as exc:
                 logger.warning(
                     "WebSocket-Sendefehler, entferne Verbindung: %s", exc

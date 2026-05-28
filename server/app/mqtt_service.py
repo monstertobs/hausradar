@@ -9,6 +9,7 @@ Updates per WebSocket an alle verbundenen Browser.
 import asyncio
 import json
 import logging
+import queue
 import threading
 from typing import Any, Dict, Optional
 
@@ -48,12 +49,26 @@ _config_write_lock = threading.Lock()  # serialisiert Schreibzugriffe auf config
 logger = logging.getLogger(__name__)
 
 
+# Sentinel für sauberes Beenden des Worker-Threads
+_QUEUE_SENTINEL = object()
+
+# Maximale Anzahl gepufferter Sensor-Payloads. Bei Überlauf werden die
+# ältesten verworfen – Live-Aktualität ist wichtiger als Vollständigkeit.
+_INGEST_QUEUE_MAX = 500
+
+
 class MqttService:
     def __init__(self) -> None:
         self._client:     Optional[mqtt.Client] = None
         self._connected:  bool = False
         self._app:        Any  = None
         self._topic:      str  = ""
+        # Geordnete Single-Worker-Verarbeitung: bewahrt die Frame-Reihenfolge
+        # (Tracker und Tür-Erkennung sind reihenfolgeabhängig) und vermeidet
+        # unbegrenzte Thread-Erzeugung auf dem Raspberry Pi Zero 2 W.
+        self._queue:      "queue.Queue" = queue.Queue(maxsize=_INGEST_QUEUE_MAX)
+        self._worker:     Optional[threading.Thread] = None
+        self._dropped:    int = 0
 
     # ------------------------------------------------------------------
     # Öffentliche API
@@ -70,6 +85,14 @@ class MqttService:
 
     def start(self, app: Any) -> None:
         self._app = app
+
+        # Geordneten Verarbeitungs-Worker starten
+        if self._worker is None or not self._worker.is_alive():
+            self._worker = threading.Thread(
+                target=self._worker_loop, name="mqtt-ingest", daemon=True
+            )
+            self._worker.start()
+
         cfg = app.state.settings.get("mqtt", {})
         host            = cfg.get("host", "localhost")
         port            = cfg.get("port", 1883)
@@ -95,6 +118,20 @@ class MqttService:
             logger.warning("MQTT Verbindung nicht möglich: %s – Service läuft ohne Broker.", exc)
 
     def stop(self) -> None:
+        # Worker beenden (auch wenn nie ein Broker verbunden war)
+        if self._worker is not None and self._worker.is_alive():
+            try:
+                self._queue.put_nowait(_QUEUE_SENTINEL)
+            except queue.Full:
+                # Platz schaffen, damit das Sentinel sicher zugestellt wird
+                try:
+                    self._queue.get_nowait()
+                except queue.Empty:
+                    pass
+                self._queue.put_nowait(_QUEUE_SENTINEL)
+            self._worker.join(timeout=2.0)
+            self._worker = None
+
         if self._client is None:
             return
         try:
@@ -103,6 +140,21 @@ class MqttService:
         except Exception:
             pass
         logger.info("MQTT-Service gestoppt.")
+
+    # ------------------------------------------------------------------
+    # Geordneter Verarbeitungs-Worker
+    # ------------------------------------------------------------------
+
+    def _worker_loop(self) -> None:
+        """Verarbeitet eingehende Payloads streng in Eingangsreihenfolge."""
+        while True:
+            payload = self._queue.get()
+            if payload is _QUEUE_SENTINEL:
+                break
+            try:
+                self._process(payload)
+            except Exception as exc:
+                logger.warning("MQTT-Worker Fehler: %s", exc)
 
     # ------------------------------------------------------------------
     # paho-Callbacks (laufen im MQTT-Thread)
@@ -149,8 +201,25 @@ class MqttService:
         except Exception as exc:
             logger.warning("MQTT Payload nicht lesbar: %s", exc)
             return
-        # Verarbeitung in eigenem Thread, um MQTT-Loop nicht zu blockieren
-        threading.Thread(target=self._process, args=(payload,), daemon=True).start()
+        # In die Verarbeitungs-Queue legen, damit der MQTT-Loop nicht blockiert
+        # und die Frame-Reihenfolge erhalten bleibt. Bei Überlauf das älteste
+        # Payload verwerfen (Live-Aktualität > Vollständigkeit).
+        try:
+            self._queue.put_nowait(payload)
+        except queue.Full:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._queue.put_nowait(payload)
+            except queue.Full:
+                pass
+            self._dropped += 1
+            if self._dropped % 100 == 1:
+                logger.warning(
+                    "MQTT-Ingest-Queue voll – %d Payload(s) verworfen", self._dropped
+                )
 
     # ------------------------------------------------------------------
     # Payload verarbeiten (sync, in separatem Thread)

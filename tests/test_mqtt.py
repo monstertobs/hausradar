@@ -187,6 +187,62 @@ class TestMqttProcess:
 
 
 # ---------------------------------------------------------------------------
+# Ingest-Queue – geordnete Verarbeitung & Überlauf-Verhalten
+# ---------------------------------------------------------------------------
+
+class TestIngestQueue:
+    def _msg(self, payload):
+        m = MagicMock()
+        m.topic = "hausradar/sensor/radar_wohnzimmer/state"
+        import json as _json
+        m.payload = _json.dumps(payload).encode("utf-8")
+        return m
+
+    def test_on_message_enqueues_payload(self):
+        svc = MqttService()
+        svc._topic = "hausradar/sensor/+/state"
+        svc._on_message(MagicMock(), None, self._msg({"sensor_id": "a"}))
+        assert svc._queue.qsize() == 1
+        assert svc._queue.get_nowait()["sensor_id"] == "a"
+
+    def test_worker_processes_in_fifo_order(self, tmp_path):
+        svc = MqttService()
+        svc._app = _make_app_mock(tmp_path)
+        seen = []
+        svc._process = lambda p: seen.append(p["n"])  # type: ignore
+
+        import threading
+        worker = threading.Thread(target=svc._worker_loop, daemon=True)
+        worker.start()
+        for n in range(20):
+            svc._queue.put({"n": n})
+        # Sentinel zum Beenden – nach Verarbeitung aller 20 Payloads
+        from app.mqtt_service import _QUEUE_SENTINEL
+        svc._queue.put(_QUEUE_SENTINEL)
+        worker.join(timeout=3.0)
+
+        assert not worker.is_alive()
+        assert seen == list(range(20))
+
+    def test_overflow_drops_oldest_keeps_newest(self):
+        from app.mqtt_service import _INGEST_QUEUE_MAX
+        svc = MqttService()
+        svc._topic = "hausradar/sensor/+/state"
+        # Queue randvoll mit Markern füllen (Worker läuft nicht)
+        for i in range(_INGEST_QUEUE_MAX):
+            svc._queue.put_nowait({"sensor_id": "old", "i": i})
+        # Eine weitere Nachricht via _on_message → ältestes wird verworfen
+        svc._on_message(MagicMock(), None, self._msg({"sensor_id": "new"}))
+        assert svc._queue.qsize() == _INGEST_QUEUE_MAX
+        assert svc._dropped == 1
+        # Neuestes Payload muss enthalten sein
+        items = []
+        while not svc._queue.empty():
+            items.append(svc._queue.get_nowait())
+        assert any(it.get("sensor_id") == "new" for it in items)
+
+
+# ---------------------------------------------------------------------------
 # GET /api/health – mqtt_connected
 # ---------------------------------------------------------------------------
 
