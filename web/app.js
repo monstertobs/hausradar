@@ -26,6 +26,19 @@ fpEditBtn?.addEventListener("click", () => {
   }
 });
 
+// Analyse-Overlay: blendet Möbel-Heatmap + gelernte Verbindungen ein/aus.
+// Live-Standard ist die ruhige Ansicht; dieser Schalter zeigt die gelernten
+// Ebenen bei Bedarf, ohne die Seite zu wechseln.
+const fpOverlayBtn   = document.getElementById("fp-overlay-btn");
+let   fpOverlayActive = false;
+fpOverlayBtn?.addEventListener("click", () => {
+  if (!floorplan) return;
+  fpOverlayActive = !fpOverlayActive;
+  floorplan.setViewMode(fpOverlayActive ? "analyse" : "live");
+  fpOverlayBtn.setAttribute("aria-pressed", String(fpOverlayActive));
+  fpOverlayBtn.classList.toggle("btn--edit-active", fpOverlayActive);
+});
+
 // ============================================================
 // WebSocket – Auto-Reconnect
 // ============================================================

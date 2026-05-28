@@ -567,6 +567,11 @@ main {
 .card-header-row h2 {
   margin-bottom: 0;
 }
+/* Button-Gruppe rechts im Grundriss-Header (Overlay-Toggle + Layout bearbeiten) */
+.fp-header-actions {
+  display: flex;
+  gap: 8px;
+}
 
 /* Draggable-Gruppen im Edit-Modus */
 .fp-edit-mode .fp-draggable {

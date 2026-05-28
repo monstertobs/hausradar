@@ -24,10 +24,17 @@
     <section class="card">
       <div class="card-header-row">
         <h2>Grundriss</h2>
-        <button id="fp-edit-btn" class="btn btn-secondary btn-sm"
-                title="Möbel und Türen verschieben">
-          ✏️ Layout bearbeiten
-        </button>
+        <div class="fp-header-actions">
+          <button id="fp-overlay-btn" class="btn btn-secondary btn-sm"
+                  title="Möbel-Heatmap und gelernte Verbindungen ein-/ausblenden"
+                  aria-pressed="false">
+            🔍 Analyse-Overlay
+          </button>
+          <button id="fp-edit-btn" class="btn btn-secondary btn-sm"
+                  title="Möbel und Türen verschieben">
+            ✏️ Layout bearbeiten
+          </button>
+        </div>
       </div>
 
       <div class="floorplan-wrap">

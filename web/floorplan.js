@@ -43,6 +43,16 @@ class Floorplan {
     this.trailMaxAgeMs   = 30_000;
     this.trailMaxPoints  = 150;
 
+    // ── Anzeige-Ebenen ────────────────────────────────────────────────
+    // Die Live-Ansicht zeigt standardmäßig nur, was JETZT wahr ist:
+    // Raumzustand, Person und frische Spur. Gelernte/analytische Overlays
+    // (Möbel-Heatmap, unbestätigte Verbindungen) bleiben in "live" aus und
+    // werden via setViewMode("analyse") eingeblendet. So bleibt der
+    // Grundriss ruhig, statt in jedem Raum zu glühen.
+    this.viewMode               = "live";   // "live" | "analyse"
+    this.showDwellZones         = false;     // Möbel-Heatmap (Dwell-Zonen)
+    this.showLearnedConnections = false;     // unbestätigte Verbindungslinien
+
     // Edit-Modus
     this._editMode = false;
     this._drag     = null;
@@ -70,6 +80,21 @@ class Floorplan {
   updateDwellZones(zones) {
     this._dwellZones = zones || [];
     if (this._dwellLayer) this._renderDwellZones();
+  }
+
+  /**
+   * Schaltet zwischen ruhiger Live-Ansicht und Analyse-Ansicht um.
+   *   "live"     → nur Raumzustand, Person, frische Spur (Standard)
+   *   "analyse"  → zusätzlich Möbel-Heatmap und gelernte Verbindungen
+   * Einzelne Ebenen lassen sich auch direkt über die Flags steuern.
+   */
+  setViewMode(mode) {
+    this.viewMode               = mode === "analyse" ? "analyse" : "live";
+    const analyse               = this.viewMode === "analyse";
+    this.showDwellZones         = analyse;
+    this.showLearnedConnections = analyse;
+    if (this._dwellLayer) this._renderDwellZones();
+    if (this._connLayer)  this._renderConnections();
   }
 
   updateCalPhases(phases) {
@@ -608,6 +633,10 @@ class Floorplan {
       Array.from(this._defs.querySelectorAll("[id^='dwell-grad-']")).forEach(n => n.remove());
     }
 
+    // In der Live-Ansicht aus: Dwell-Zonen sind gelernte Möbelpositionen,
+    // keine aktuelle Präsenz. Layer bleibt leer, der Grundriss bleibt ruhig.
+    if (!this.showDwellZones) return;
+
     const TYPE_COLORS = {
       sofa:  "251,146,60",   // amber-400
       chair: "74,222,128",   // green-400
@@ -675,6 +704,10 @@ class Floorplan {
     while (this._connLayer.firstChild) this._connLayer.removeChild(this._connLayer.firstChild);
 
     for (const conn of this._connections) {
+      // Unbestätigte (gelernte) Verbindungen nur in der Analyse-Ansicht zeigen.
+      // Bestätigte Türen (✓) bleiben immer sichtbar – sie sind echte Topologie.
+      if (!conn.confirmed && !this.showLearnedConnections) continue;
+
       const ca = this._roomCenter(conn.room_a);
       const cb = this._roomCenter(conn.room_b);
       if (!ca || !cb) continue;

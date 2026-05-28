@@ -5,6 +5,16 @@ Berechnet SVG-Floorplan-Koordinaten aus dem Verbindungsgraphen der Räume.
 Berücksichtigt sowohl manuell kalibrierte Türen (rooms.json) als auch
 automatisch gelernte Verbindungen (transition_detector).
 
+Designprinzip (NEU):
+  * Räume teilen sich Wände (GAP = 0) statt frei zu schweben.
+  * Nachbarn werden an der GEMEINSAMEN WAND ausgerichtet, nicht an der
+    Türmitte. Die Türöffnung selbst wird in floorplan.js entlang der Wand
+    gezeichnet – ihre Position verschiebt den Raum also nicht mehr.
+  * Manuell gesetzte floorplan-Koordinaten (rooms.json / "Layout bearbeiten")
+    sind die QUELLE DER WAHRHEIT: solche Räume werden eingefroren und dienen
+    als Anker. Nur Räume OHNE manuelle Position werden automatisch platziert.
+  * Dadurch ist das Ergebnis stabil und springt nicht bei jedem Lern-Update.
+
 Schreibt NICHT in rooms.json – gibt nur ein Layout-Dict zurück.
 """
 
@@ -12,7 +22,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 SCALE = 0.05   # px / mm  (1 m → 50 px)
-GAP   = 12     # px Lücke zwischen benachbarten Räumen
+GAP   = 0      # px Lücke zwischen benachbarten Räumen (0 = gemeinsame Wand)
 PAD   = 10     # px Außenabstand
 
 
@@ -22,13 +32,19 @@ def fp_size(room: dict) -> Tuple[int, int]:
     return w, h
 
 
+def _has_manual_pos(room: dict) -> bool:
+    """True, wenn der Raum in rooms.json eine echte floorplan-Position hat."""
+    fp = room.get("floorplan")
+    return isinstance(fp, dict) and "x" in fp and "y" in fp
+
+
 def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None) -> dict:
     """
     Berechnet Floorplan-Positionen für alle Räume.
 
     Verbindungsquellen (beide werden genutzt):
-      - Türen in rooms.json  (präzise Wandposition bekannt)
-      - learned_connections  (nur Raumpaare bekannt, keine Wand)
+      - Türen in rooms.json  (Wandseite bekannt → bestimmt Platzierungsrichtung)
+      - learned_connections  (nur Raumpaare bekannt → Platzierung rechts daneben)
 
     Rückgabe: dict room_id → {"x", "y", "width", "height"}
     (direkte SVG-Pixel, keine Änderung an rooms.json)
@@ -39,75 +55,67 @@ def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None)
     room_map: Dict[str, dict] = {r["id"]: r for r in rooms}
 
     # ── Verbindungsgraph aufbauen ────────────────────────────────────────────
-    # edges: room_id → list of (neighbor_id, wall, door_pos_mm, door_w_mm)
-    # Für gelernte Verbindungen: wall=None (kein Wandbezug)
-    edges: Dict[str, List[tuple]] = {r["id"]: [] for r in rooms}
+    # edges: room_id → list of (neighbor_id, wall)
+    # wall bestimmt nur noch die RICHTUNG (rechts/links/oben/unten),
+    # nicht mehr einen vertikalen Versatz. Gelernte Verbindungen: wall=None.
+    edges: Dict[str, List[Tuple[str, Optional[str]]]] = {r["id"]: [] for r in rooms}
 
     for room in rooms:
         for door in room.get("doors", []):
             nid = (door.get("connects_to") or "").strip()
             if nid and nid in room_map:
-                edges[room["id"]].append((
-                    nid,
-                    door.get("wall", "right"),
-                    door.get("position_mm", 0),
-                    door.get("width_mm", 800),
-                ))
+                edges[room["id"]].append((nid, door.get("wall", "right")))
 
-    # Gelernte Verbindungen hinzufügen (bidirektional, nur wenn noch keine Tür existiert)
     for conn in (learned_connections or []):
         a, b = conn.get("room_a"), conn.get("room_b")
         if not a or not b or a not in room_map or b not in room_map:
             continue
-        already = any(nb == b for nb, *_ in edges[a])
-        if not already:
-            edges[a].append((b, None, None, None))
-            edges[b].append((a, None, None, None))
+        if not any(nb == b for nb, _ in edges[a]):
+            edges[a].append((b, None))
+            edges[b].append((a, None))
 
-    # ── BFS-Platzierung ──────────────────────────────────────────────────────
     placed:  Dict[str, Tuple[int, int]] = {}
     visited: set = set()
+    queue:   List[str] = []
 
-    first_id = rooms[0]["id"]
-    placed[first_id] = (PAD, PAD)
-    visited.add(first_id)
-    queue = [first_id]
+    # ── Anker: manuell positionierte Räume einfrieren ───────────────────────
+    # Sie werden 1:1 übernommen und seeden die BFS für ihre Nachbarn.
+    for room in rooms:
+        if _has_manual_pos(room):
+            fp = room["floorplan"]
+            placed[room["id"]] = (round(fp["x"]), round(fp["y"]))
+            visited.add(room["id"])
+            queue.append(room["id"])
 
+    # Kein manueller Anker → ersten Raum als Ursprung setzen.
+    if not queue:
+        first_id = rooms[0]["id"]
+        placed[first_id] = (PAD, PAD)
+        visited.add(first_id)
+        queue.append(first_id)
+
+    # ── BFS-Platzierung: gemeinsame Wand, ausgerichtete Kanten ──────────────
     while queue:
-        rid  = queue.pop(0)
-        room = room_map[rid]
+        rid = queue.pop(0)
         rx, ry = placed[rid]
-        rw, rh = fp_size(room)
+        rw, rh = fp_size(room_map[rid])
 
-        for nid, wall, door_pos_mm, door_w_mm in edges[rid]:
+        for nid, wall in edges[rid]:
             if nid in visited:
                 continue
+            nw, nh = fp_size(room_map[nid])
 
-            neighbor = room_map[nid]
-            nw, nh   = fp_size(neighbor)
-
-            if wall is not None and door_pos_mm is not None:
-                # Tür mit Wandbezug: Türmitte im Nachbar ausrichten
-                door_center = door_pos_mm * SCALE + (door_w_mm or 800) * SCALE / 2
-                if wall == "right":
-                    nx = rx + rw + GAP
-                    ny = ry + door_center - nh / 2
-                elif wall == "left":
-                    nx = rx - GAP - nw
-                    ny = ry + door_center - nh / 2
-                elif wall == "bottom":
-                    ny = ry + rh + GAP
-                    nx = rx + door_center - nw / 2
-                elif wall == "top":
-                    ny = ry - GAP - nh
-                    nx = rx + door_center - nw / 2
-                else:
-                    nx = rx + rw + GAP
-                    ny = ry
+            w = wall or "right"   # gelernte Verbindung → rechts andocken
+            if w == "right":
+                nx, ny = rx + rw + GAP, ry            # gemeinsame rechte Wand, Oberkanten bündig
+            elif w == "left":
+                nx, ny = rx - GAP - nw, ry
+            elif w == "bottom":
+                nx, ny = rx, ry + rh + GAP            # gemeinsame Unterwand, linke Kanten bündig
+            elif w == "top":
+                nx, ny = rx, ry - GAP - nh
             else:
-                # Gelernte Verbindung ohne Wandbezug: rechts platzieren
-                nx = rx + rw + GAP
-                ny = ry + (rh - nh) / 2   # vertikal zentriert
+                nx, ny = rx + rw + GAP, ry
 
             placed[nid] = (round(nx), round(ny))
             visited.add(nid)
@@ -126,7 +134,7 @@ def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None)
     for room in rooms:
         if room["id"] not in placed:
             nw, nh = fp_size(room)
-            placed[room["id"]] = (cur_x, round(max_y + GAP * 3))
+            placed[room["id"]] = (cur_x, round(max_y + GAP + PAD))
             cur_x += nw + GAP
 
     # ── Normalisieren (min_x = PAD, min_y = PAD) ─────────────────────────────

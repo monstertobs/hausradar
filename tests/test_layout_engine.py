@@ -1,0 +1,82 @@
+"""Tests für das Floorplan-Auto-Layout (layout_engine).
+
+Sichern das saubere Kachel-Verhalten ab:
+  * manuell positionierte Räume werden eingefroren (Quelle der Wahrheit),
+  * automatisch platzierte Nachbarn teilen sich Wände (kein Versatz, kein Gap),
+  * gelernte Verbindungen verschieben bestehende Räume nicht.
+"""
+
+from app import layout_engine as le
+
+
+def _room(rid, w_mm, h_mm, floorplan=None, doors=None):
+    r = {"id": rid, "name": rid, "width_mm": w_mm, "height_mm": h_mm}
+    if floorplan is not None:
+        r["floorplan"] = floorplan
+    if doors is not None:
+        r["doors"] = doors
+    return r
+
+
+def test_leeres_layout():
+    assert le.compute([]) == {}
+
+
+def test_manuelle_koords_werden_eingefroren():
+    """Räume mit floorplan-Koords kommen 1:1 zurück (nur normalisiert)."""
+    rooms = [
+        _room("a", 6000, 4500, {"x": 10, "y": 10, "width": 300, "height": 225}),
+        _room("b", 4000, 1500, {"x": 320, "y": 10, "width": 200, "height": 75}),
+    ]
+    out = le.compute(rooms, [])
+    assert out["a"]["x"] == 10 and out["a"]["y"] == 10
+    assert out["b"]["x"] == 320 and out["b"]["y"] == 10
+
+
+def test_auto_nachbar_teilt_wand_ohne_versatz():
+    """Tür an rechter Wand → Nachbar dockt bündig an, gleiche Oberkante."""
+    rooms = [
+        _room("a", 6000, 4500, doors=[{"connects_to": "b", "wall": "right"}]),
+        _room("b", 4000, 3000),
+    ]
+    out = le.compute(rooms, [])
+    a, b = out["a"], out["b"]
+    # bündig: kein Gap zwischen rechter Kante von a und linker Kante von b
+    assert b["x"] == a["x"] + a["width"]
+    # kein vertikaler Versatz: Oberkanten gleich
+    assert b["y"] == a["y"]
+
+
+def test_tuerposition_verschiebt_raum_nicht():
+    """Egal wo die Tür in der Wand sitzt – die Raumkanten bleiben bündig."""
+    base = _room("b", 4000, 3000)
+    out_low = le.compute(
+        [_room("a", 6000, 4500, doors=[{"connects_to": "b", "wall": "right",
+                                        "position_mm": 200}]), base], [])
+    out_high = le.compute(
+        [_room("a", 6000, 4500, doors=[{"connects_to": "b", "wall": "right",
+                                        "position_mm": 4000}]), base], [])
+    # Türposition ändert die Raumplatzierung NICHT mehr (früherer Treppen-Bug)
+    assert out_low["b"]["y"] == out_high["b"]["y"]
+
+
+def test_gelernte_verbindung_verschiebt_bestehende_nicht():
+    """Eine neu gelernte Verbindung darf manuelle Anker nicht verrücken."""
+    rooms = [
+        _room("a", 6000, 4500, {"x": 10, "y": 10, "width": 300, "height": 225}),
+        _room("b", 4000, 3000, {"x": 320, "y": 10, "width": 200, "height": 150}),
+    ]
+    before = le.compute(rooms, [])
+    after = le.compute(rooms, [{"room_a": "a", "room_b": "b"}])
+    assert before == after
+
+
+def test_unverbundener_raum_wird_platziert():
+    """Ein Raum ohne Tür/Koords darf nicht verschwinden."""
+    rooms = [
+        _room("a", 6000, 4500, {"x": 10, "y": 10, "width": 300, "height": 225}),
+        _room("solo", 3000, 3000),
+    ]
+    out = le.compute(rooms, [])
+    assert "solo" in out
+    assert out["solo"]["width"] > 0 and out["solo"]["height"] > 0
