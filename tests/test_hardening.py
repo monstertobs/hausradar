@@ -206,6 +206,41 @@ class TestApiKeyAuth:
         finally:
             main_module._API_KEY = original
 
+    def test_same_origin_browser_exempt_from_key(self, client):
+        """Same-Origin-Browser-Requests (Sec-Fetch-Site) brauchen keinen Key.
+
+        Die mitgelieferte Web-Oberfläche kann kein Geheimnis sicher halten;
+        sie wird über das Origin-/Netzwerk-Vertrauen zugelassen, externe
+        Clients weiterhin per Key.
+        """
+        from app import main as main_module
+        original = main_module._API_KEY
+        main_module._API_KEY = "geheimespasswort"
+        try:
+            res = client.get("/api/rooms", headers={"Sec-Fetch-Site": "same-origin"})
+            assert res.status_code == 200
+        finally:
+            main_module._API_KEY = original
+
+    def test_allowed_origin_exempt_from_key(self, client):
+        """Explizit erlaubte Origins brauchen keinen Key (analog WebSocket)."""
+        from app import main as main_module
+        orig_key = main_module._API_KEY
+        orig_origins = main_module._ALLOWED_ORIGINS
+        main_module._API_KEY = "geheimespasswort"
+        main_module._ALLOWED_ORIGINS = ["http://hausradar.local:8000"]
+        try:
+            res = client.get("/api/rooms",
+                             headers={"Origin": "http://hausradar.local:8000"})
+            assert res.status_code == 200
+            # Fremde Origin ohne Key weiterhin 401
+            res2 = client.get("/api/rooms",
+                              headers={"Origin": "http://evil.example:8000"})
+            assert res2.status_code == 401
+        finally:
+            main_module._API_KEY = orig_key
+            main_module._ALLOWED_ORIGINS = orig_origins
+
 
 # ---------------------------------------------------------------------------
 # HR-SEC-005 – Body-Size-Limit

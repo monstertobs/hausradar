@@ -62,10 +62,18 @@ In `config/settings.json`:
 }
 ```
 
-Alle Browser-Zugriffe auf `/api/*` erfordern dann den Header:
+Externe bzw. programmatische Clients (z.B. Skripte, andere Geräte im LAN)
+müssen dann bei jedem `/api/*`-Aufruf diesen Header mitsenden:
 ```
 X-API-Key: ein-langes-zufaelliges-passwort-hier
 ```
+
+Die mitgelieferte Web-Oberfläche funktioniert **ohne** Key: Sie wird
+same-origin vom selben Server ausgeliefert und über das Netzwerk-/Origin-
+Vertrauen zugelassen (erkannt am `Sec-Fetch-Site`-Header bzw. an einer in
+`allowed_origins` eingetragenen Origin – analog zur WebSocket-Prüfung). Ein
+Browser kann ein Geheimnis ohnehin nicht sicher aufbewahren; den Zugriff
+fremder Geräte verhindert der Key trotzdem.
 
 Ausnahme: `/api/health` ist immer erreichbar (Monitoring).
 

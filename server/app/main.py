@@ -99,8 +99,30 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 _API_KEY: Optional[str] = None
+_ALLOWED_ORIGINS: list = []
 
 _API_KEY_EXEMPT_PREFIXES = ("/api/health", "/api/csp-report")
+
+
+def _is_same_origin_browser(request: Request) -> bool:
+    """Erkennt Requests der mitgelieferten Web-Oberfläche.
+
+    Die UI wird same-origin vom selben Server ausgeliefert. Wegen der
+    Referrer-Policy 'no-referrer' und weil Browser bei same-origin-GETs
+    oft keinen Origin-Header senden, ist 'Sec-Fetch-Site' der zuverlässigste
+    Indikator. Cross-Site-Requests und programmatische Clients (z.B. curl von
+    einem anderen LAN-Gerät) senden diesen Header nicht als 'same-origin'/'none'
+    und brauchen daher weiterhin den API-Key. Zusätzlich werden explizit in
+    allowed_origins eingetragene Origins akzeptiert (analog zur WebSocket-Logik).
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site in ("same-origin", "none"):
+        return True
+    origin = request.headers.get("origin")
+    if origin and _ALLOWED_ORIGINS and origin in _ALLOWED_ORIGINS:
+        return True
+    return False
+
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -111,7 +133,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
                 path.startswith(p) for p in _API_KEY_EXEMPT_PREFIXES
             ):
                 key = request.headers.get("X-API-Key", "")
-                if key != _API_KEY:
+                if key != _API_KEY and not _is_same_origin_browser(request):
                     return JSONResponse(
                         status_code=401,
                         content={"detail": "Ungültiger oder fehlender API-Key (X-API-Key)"},
@@ -126,7 +148,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _API_KEY
+    global _API_KEY, _ALLOWED_ORIGINS
 
     logger.info("HausRadar startet …")
     try:
@@ -163,7 +185,8 @@ async def lifespan(app: FastAPI):
         except OSError as _e:
             logger.warning("Konnte %s nicht auf 0o600 setzen: %s", _cfg_name, _e)
 
-    # API-Key aus Konfiguration laden
+    # API-Key + erlaubte Origins aus Konfiguration laden
+    _ALLOWED_ORIGINS = app.state.settings.get("server", {}).get("allowed_origins", []) or []
     _API_KEY = app.state.settings.get("server", {}).get("api_key") or None
     if _API_KEY:
         logger.info("API-Key-Authentifizierung aktiv.")
