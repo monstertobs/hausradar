@@ -153,3 +153,44 @@ def test_tuer_sync_ohne_gegenstueck_ist_noop():
               "floorplan": {"x": 310, "y": 10, "width": 200, "height": 150},
               "doors": []}
     assert _sync_counterpart_door([room_a, room_b], room_a, room_a["doors"][0]) is None
+
+
+def test_etagen_werden_getrennt_angeordnet():
+    """Räume verschiedener Etagen überlappen nie und liegen nebeneinander."""
+    rooms = [
+        dict(_room("eg1", 6000, 4500), floor=0,
+             doors=[{"connects_to": "eg2", "wall": "right"}]),
+        dict(_room("eg2", 4000, 3000), floor=0),
+        dict(_room("keller", 8000, 5000), floor=-1),
+    ]
+    out = le.compute(rooms, [], fresh=True)
+    k, e1 = out["keller"], out["eg1"]
+    # Keller (Etage -1) liegt links, EG-Gruppe rechts davon mit Abstand
+    assert k["x"] < e1["x"]
+    assert e1["x"] >= k["x"] + k["width"] + le.FLOOR_GUTTER - 1
+    # EG-Räume bleiben Wand an Wand
+    assert out["eg2"]["x"] == e1["x"] + e1["width"]
+
+
+def test_treppen_tuer_zieht_keller_nicht_unters_eg():
+    """Eine Tür zwischen Etagen (Treppe) darf die Gruppen nicht vermischen."""
+    rooms = [
+        dict(_room("flur", 4000, 1500), floor=0,
+             doors=[{"connects_to": "keller", "wall": "bottom"}]),
+        dict(_room("keller", 8000, 5000), floor=-1),
+    ]
+    out = le.compute(rooms, [], fresh=True)
+    f, k = out["flur"], out["keller"]
+    overlap_x = min(f["x"] + f["width"],  k["x"] + k["width"])  - max(f["x"], k["x"])
+    overlap_y = min(f["y"] + f["height"], k["y"] + k["height"]) - max(f["y"], k["y"])
+    assert not (overlap_x > 0 and overlap_y > 0)
+
+
+def test_eine_etage_verhaelt_sich_wie_bisher():
+    """Ohne floor-Feld ändert sich nichts am Anker-Verhalten."""
+    rooms = [
+        _room("a", 6000, 4500, {"x": 10, "y": 10, "width": 300, "height": 225}),
+        _room("b", 4000, 1500, {"x": 320, "y": 10, "width": 200, "height": 75}),
+    ]
+    out = le.compute(rooms, [])
+    assert out["a"]["x"] == 10 and out["b"]["x"] == 320

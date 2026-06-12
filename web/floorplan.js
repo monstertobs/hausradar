@@ -647,7 +647,8 @@ class Floorplan {
       maxY = Math.max(maxY, fp.y + fp.height);
     }
     if (minX === Infinity) { minX = 0; minY = 0; }
-    const pad = 14;
+    const floorCount = new Set(this._rooms.map(r => Number(r.floor ?? 0))).size;
+    const pad = floorCount > 1 ? 24 : 14;   // Platz für Etagen-Überschriften
     const vx = minX - pad, vy = minY - pad;
     const vw = (maxX - minX) + pad * 2;
     const vh = (maxY - minY) + pad * 2;
@@ -676,6 +677,9 @@ class Floorplan {
     svg.appendChild(this._el("rect", {
       x: vx, y: vy, width: vw, height: vh, class: "fp-bg",
     }));
+
+    // Etagen-Überschriften + Trennlinien (wenn mehrere Etagen existieren)
+    this._buildFloorLabels(svg);
 
     // Räume (unterste Ebene)
     for (const room of this._rooms) this._buildRoom(svg, room);
@@ -994,6 +998,51 @@ class Floorplan {
     svg.appendChild(g);
   }
 
+  /**
+   * Zeichnet pro Etage eine Überschrift über der Raumgruppe und dezente
+   * Trennlinien zwischen den Etagen-Bereichen. Nur aktiv, wenn die Räume
+   * mehr als eine Etage (room.floor) haben.
+   */
+  _buildFloorLabels(svg) {
+    const groups = new Map();   // floor → bbox
+    for (const r of this._rooms) {
+      const fp = r.floorplan;
+      if (!fp) continue;
+      const fl = Number(r.floor ?? 0);
+      const g  = groups.get(fl) || { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+      g.minX = Math.min(g.minX, fp.x);
+      g.minY = Math.min(g.minY, fp.y);
+      g.maxX = Math.max(g.maxX, fp.x + fp.width);
+      g.maxY = Math.max(g.maxY, fp.y + fp.height);
+      groups.set(fl, g);
+    }
+    if (groups.size < 2) return;
+
+    const floors = [...groups.keys()].sort((a, b) => a - b);
+    let prev = null;
+    for (const fl of floors) {
+      const g = groups.get(fl);
+
+      const label = this._el("text", {
+        x: g.minX, y: g.minY - 7,
+        class: "floor-label",
+      });
+      label.textContent = _floorName(fl);
+      svg.appendChild(label);
+
+      // Trennlinie in der Lücke zur vorherigen Etagen-Gruppe
+      if (prev && g.minX > prev.maxX) {
+        const mid = (prev.maxX + g.minX) / 2;
+        const y0  = Math.min(prev.minY, g.minY) - 14;
+        const y1  = Math.max(prev.maxY, g.maxY) + 6;
+        svg.appendChild(this._el("line", {
+          x1: mid, y1: y0, x2: mid, y2: y1, class: "floor-divider",
+        }));
+      }
+      prev = g;
+    }
+  }
+
   /** Findet das Tür-Gegenstück im Nachbarraum (auf der gegenüberliegenden Wand). */
   _doorCounterpart(room, door) {
     const nid = (door.connects_to || "").trim();
@@ -1145,6 +1194,13 @@ class Floorplan {
 // ----------------------------------------------------------------
 // Hilfsfunktionen (modul-global)
 // ----------------------------------------------------------------
+
+function _floorName(f) {
+  if (f === 0)  return "Erdgeschoss";
+  if (f === -1) return "Keller";
+  if (f < -1)   return `${-f}. Untergeschoss`;
+  return `${f}. Stock`;
+}
 
 function _calHintText(phase) {
   return phase === "none"     ? "kein Signal"   :

@@ -7,6 +7,14 @@
  */
 
 
+function floorLabel(f) {
+  if (f === 0)  return "Erdgeschoss";
+  if (f === -1) return "Keller";
+  if (f < -1)   return `${-f}. Untergeschoss`;
+  return `${f}. Stock`;
+}
+
+
 // ---------------------------------------------------------------------------
 // Möbel / Tür direkt zur gespeicherten Kalibrierung hinzufügen
 // ---------------------------------------------------------------------------
@@ -165,9 +173,11 @@ function renderRoomsMgmt(rooms, sensors) {
     if (btnRename) {
       btnRename.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        showEditModal(btnRename, `Raum umbenennen: ${room.name}`, [
-          { key: "name", label: "Neuer Name", type: "text", value: room.name },
+        showEditModal(btnRename, `Raum bearbeiten: ${room.name}`, [
+          { key: "name",  label: "Name",                              type: "text",   value: room.name },
+          { key: "floor", label: "Etage (-1=Keller, 0=EG, 1=1.Stock)", type: "number", value: room.floor ?? 0 },
         ], async (updates) => {
+          if (updates.floor !== undefined) updates.floor = parseInt(updates.floor) || 0;
           await apiFetch(`/api/rooms/${room.id}`, {
             method:  "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -256,6 +266,7 @@ function roomMgmtRowHtml(room, sensors) {
       <!-- Abmessungen -->
       <div style="font-size:.78rem;color:var(--muted);white-space:nowrap">
         ${(room.width_mm/1000).toFixed(1)} m × ${(room.height_mm/1000).toFixed(1)} m
+        &nbsp;·&nbsp; ${floorLabel(room.floor ?? 0)}
       </div>
       <!-- Sensoren -->
       <div style="display:flex;flex-wrap:wrap;gap:4px;flex:1">${sensorBadges}</div>
@@ -335,6 +346,7 @@ async function handleCreateRoom() {
   const name   = $("new-room-name").value.trim();
   const width  = parseInt($("new-room-width").value)  || 5000;
   const height = parseInt($("new-room-height").value) || 4000;
+  const floor  = parseInt($("new-room-floor")?.value ?? "0") || 0;
   const sensor = $("new-room-sensor").value.trim();
 
   if (!name) {
@@ -354,6 +366,7 @@ async function handleCreateRoom() {
         name,
         width_mm:    width,
         height_mm:   height,
+        floor,
         sensor_name: sensor || null,
       }),
     });

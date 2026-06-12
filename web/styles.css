@@ -408,6 +408,21 @@ main {
 .room-recent  { fill: rgba(202,138,4,.08);  stroke: #a16207; }
 .room-offline { fill: rgba(239,68,68,.07);  stroke: #b91c1c; }
 
+/* Etagen-Überschriften + Trenner */
+.floor-label {
+  font: 700 8px/1 system-ui, -apple-system, sans-serif;
+  fill: #94a3b8;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
+}
+.floor-divider {
+  stroke: #1f2937;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+}
+
 /* Raumname */
 .room-label {
   font: 600 9px/1 system-ui, -apple-system, sans-serif;

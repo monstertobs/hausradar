@@ -67,7 +67,8 @@ def get_rooms(request: Request):
 # ---------------------------------------------------------------------------
 
 class PatchRoomBody(BaseModel):
-    name: Optional[str] = None
+    name:  Optional[str] = None
+    floor: Optional[int] = None   # -1 = Keller, 0 = EG, 1 = 1. Stock …
 
 
 @router.patch("/rooms/{room_id}", status_code=200)
@@ -82,6 +83,9 @@ def patch_room(room_id: str, body: PatchRoomBody, request: Request):
     if body.name is not None:
         room["name"] = body.name.strip()
         updated["name"] = room["name"]
+    if body.floor is not None:
+        room["floor"] = body.floor
+        updated["floor"] = body.floor
 
     if not updated:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
@@ -100,6 +104,7 @@ class CreateRoomBody(BaseModel):
     name:        str
     width_mm:    int            = 5000
     height_mm:   int            = 4000
+    floor:       int            = 0
     sensor_name: Optional[str] = None
 
 
@@ -132,6 +137,7 @@ def create_room(body: CreateRoomBody, request: Request):
         "name":      body.name.strip(),
         "width_mm":  body.width_mm,
         "height_mm": body.height_mm,
+        "floor":     body.floor,
         "floorplan": {"x": fp_x, "y": fp_y, "width": fp_w, "height": fp_h},
         "zones":     [],
         "furniture": [],

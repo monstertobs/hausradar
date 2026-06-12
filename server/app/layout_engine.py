@@ -21,9 +21,10 @@ Schreibt NICHT in rooms.json – gibt nur ein Layout-Dict zurück.
 import math
 from typing import Dict, List, Optional, Tuple
 
-SCALE = 0.05   # px / mm  (1 m → 50 px)
-GAP   = 0      # px Lücke zwischen benachbarten Räumen (0 = gemeinsame Wand)
-PAD   = 10     # px Außenabstand
+SCALE        = 0.05   # px / mm  (1 m → 50 px)
+GAP          = 0      # px Lücke zwischen benachbarten Räumen (0 = gemeinsame Wand)
+PAD          = 10     # px Außenabstand
+FLOOR_GUTTER = 50     # px Abstand zwischen Etagen-Gruppen
 
 
 def fp_size(room: dict) -> Tuple[int, int]:
@@ -84,9 +85,11 @@ def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None,
     """
     Berechnet Floorplan-Positionen für alle Räume.
 
-    Verbindungsquellen (beide werden genutzt):
-      - Türen in rooms.json  (Wandseite bekannt → bestimmt Platzierungsrichtung)
-      - learned_connections  (nur Raumpaare bekannt → Platzierung rechts daneben)
+    Räume werden nach Etage (room["floor"], Standard 0) gruppiert: jede Etage
+    wird unabhängig layoutet und die Gruppen nebeneinander angeordnet
+    (aufsteigend sortiert: Keller links, dann EG, dann Obergeschosse).
+    Türen/Verbindungen zwischen Etagen (Treppen) beeinflussen die Platzierung
+    nicht – sonst würde der Keller unters Erdgeschoss geschoben.
 
     fresh=True ignoriert vorhandene floorplan-Koordinaten und berechnet das
     Layout komplett neu (für den expliziten "Auto-Layout"-Button). Im
@@ -95,6 +98,44 @@ def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None,
     Rückgabe: dict room_id → {"x", "y", "width", "height"}
     (direkte SVG-Pixel, keine Änderung an rooms.json)
     """
+    if not rooms:
+        return {}
+
+    floors: dict = {}
+    for r in rooms:
+        floors.setdefault(int(r.get("floor", 0) or 0), []).append(r)
+
+    # Eine Etage → bisheriges Verhalten (Anker bleiben exakt erhalten)
+    if len(floors) == 1:
+        return _compute_floor(rooms, learned_connections, fresh)
+
+    result: dict = {}
+    offset_x = 0
+    for fl in sorted(floors):
+        group = floors[fl]
+        ids   = {r["id"] for r in group}
+        conns = [c for c in (learned_connections or [])
+                 if c.get("room_a") in ids and c.get("room_b") in ids]
+        sub = _compute_floor(group, conns, fresh)
+        if not sub:
+            continue
+        # Gruppe auf den eigenen Etagen-Bereich verschieben
+        min_x = min(v["x"] for v in sub.values())
+        min_y = min(v["y"] for v in sub.values())
+        max_x = 0
+        for rid, v in sub.items():
+            x = v["x"] - min_x + PAD + offset_x
+            y = v["y"] - min_y + PAD
+            result[rid] = {"x": x, "y": y, "width": v["width"], "height": v["height"]}
+            max_x = max(max_x, x + v["width"])
+        offset_x = max_x - PAD + FLOOR_GUTTER
+
+    return result
+
+
+def _compute_floor(rooms: List[dict], learned_connections: Optional[List[dict]] = None,
+                   fresh: bool = False) -> dict:
+    """Layoutet die Räume EINER Etage (Türen-BFS, Wand an Wand, Kollisionscheck)."""
     if not rooms:
         return {}
 
