@@ -38,13 +38,59 @@ def _has_manual_pos(room: dict) -> bool:
     return isinstance(fp, dict) and "x" in fp and "y" in fp
 
 
-def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None) -> dict:
+def _overlaps(ax: float, ay: float, aw: float, ah: float,
+              bx: float, by: float, bw: float, bh: float,
+              tol: float = 0.5) -> bool:
+    """True wenn sich zwei Rechtecke flächig überlappen (Kanten-Berührung ok)."""
+    return (ax + tol < bx + bw and bx + tol < ax + aw and
+            ay + tol < by + bh and by + tol < ay + ah)
+
+
+def _resolve_overlap(nx: float, ny: float, nw: int, nh: int, wall: str,
+                     placed: Dict[str, Tuple[int, int]],
+                     sizes: Dict[str, Tuple[int, int]]) -> Tuple[float, float]:
+    """
+    Verschiebt einen neu zu platzierenden Raum entlang der gemeinsamen Wand,
+    bis er keinen bereits platzierten Raum mehr überlappt.
+
+    Bei left/right-Andocken wird vertikal geschoben, bei top/bottom horizontal –
+    so bleibt die gemeinsame Wand erhalten.
+    """
+    def collides(x: float, y: float) -> bool:
+        return any(
+            _overlaps(x, y, nw, nh, px, py, *sizes[rid])
+            for rid, (px, py) in placed.items()
+        )
+
+    if not collides(nx, ny):
+        return nx, ny
+
+    step = 10
+    for i in range(1, 121):
+        for sign in (1, -1):
+            off = sign * i * step
+            if wall in ("top", "bottom"):
+                cx, cy = nx + off, ny
+            else:
+                cx, cy = nx, ny + off
+            if not collides(cx, cy):
+                return cx, cy
+    # Kein freier Platz gefunden – Original behalten (besser als Endlosschleife)
+    return nx, ny
+
+
+def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None,
+            fresh: bool = False) -> dict:
     """
     Berechnet Floorplan-Positionen für alle Räume.
 
     Verbindungsquellen (beide werden genutzt):
       - Türen in rooms.json  (Wandseite bekannt → bestimmt Platzierungsrichtung)
       - learned_connections  (nur Raumpaare bekannt → Platzierung rechts daneben)
+
+    fresh=True ignoriert vorhandene floorplan-Koordinaten und berechnet das
+    Layout komplett neu (für den expliziten "Auto-Layout"-Button). Im
+    Standardmodus (fresh=False) sind manuelle Positionen eingefrorene Anker.
 
     Rückgabe: dict room_id → {"x", "y", "width", "height"}
     (direkte SVG-Pixel, keine Änderung an rooms.json)
@@ -78,10 +124,14 @@ def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None)
     visited: set = set()
     queue:   List[str] = []
 
+    # Raumgrößen einmalig berechnen (auch für Kollisionsprüfung)
+    sizes: Dict[str, Tuple[int, int]] = {r["id"]: fp_size(r) for r in rooms}
+
     # ── Anker: manuell positionierte Räume einfrieren ───────────────────────
     # Sie werden 1:1 übernommen und seeden die BFS für ihre Nachbarn.
+    # Im fresh-Modus werden Anker ignoriert – alles wird neu platziert.
     for room in rooms:
-        if _has_manual_pos(room):
+        if not fresh and _has_manual_pos(room):
             fp = room["floorplan"]
             placed[room["id"]] = (round(fp["x"]), round(fp["y"]))
             visited.add(room["id"])
@@ -117,6 +167,7 @@ def compute(rooms: List[dict], learned_connections: Optional[List[dict]] = None)
             else:
                 nx, ny = rx + rw + GAP, ry
 
+            nx, ny = _resolve_overlap(nx, ny, nw, nh, w, placed, sizes)
             placed[nid] = (round(nx), round(ny))
             visited.add(nid)
             queue.append(nid)

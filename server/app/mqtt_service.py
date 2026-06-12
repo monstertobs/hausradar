@@ -561,6 +561,36 @@ class MqttService:
                         "msg":          f"Sensor kalibriert: {new_rot}°",
                     })
 
+        # ── M25: Raumform (Polygon) aus Belegungsraster lernen ────────────
+        rooms   = app.state.rooms
+        sensors = app.state.sensors
+        room    = next((r for r in rooms   if r["id"] == room_id),   None)
+        sensor  = next((s for s in sensors if s["id"] == sensor_id), None)
+        if room and sensor:
+            shape = auto_calibration.suggest_room_shape(sensor_id, room, sensor)
+            if shape and shape.get("confidence", 0) >= _AUTO_APPLY_CONFIDENCE:
+                new_pts = shape["shape_points"]
+                if new_pts != room.get("shape_points"):
+                    rooms_data = load_json(rooms_path)
+                    for r in rooms_data:
+                        if r["id"] == room_id:
+                            r["shape_points"] = new_pts
+                            break
+                    save_json(rooms_path, rooms_data)
+                    app.state.rooms   = load_rooms()
+                    app.state.sensors = load_sensors(app.state.rooms)
+                    logger.info(
+                        "Auto-Cal Raumform %s: %d Wandsegmente (conf=%.2f)",
+                        room_id, shape["segments"], shape["confidence"],
+                    )
+                    events.append({
+                        "type":       "calibration_update",
+                        "subtype":    "room_shape",
+                        "room_id":    room_id,
+                        "confidence": shape["confidence"],
+                        "msg":        "Raumform erkannt und übernommen",
+                    })
+
         return events
 
 

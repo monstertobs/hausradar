@@ -962,10 +962,71 @@ def patch_door(room_id: str, did: str, body: PatchDoorRequest, request: Request)
     if not updated:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren angegeben")
 
+    # Gegenstück im Nachbarraum mitführen, damit beide Türhälften fluchten
+    synced = _sync_counterpart_door(rooms, room, door)
+
     _write_json_file(rooms_path, rooms)
     request.app.state.rooms = rooms
-    logger.info("Tür '%s' in Raum '%s' gepatcht: %s", did, room_id, updated)
-    return {"room_id": room_id, "door_id": did, "updated": updated}
+    logger.info("Tür '%s' in Raum '%s' gepatcht: %s%s", did, room_id, updated,
+                f" (Gegenstück in '{synced}' synchronisiert)" if synced else "")
+    result = {"room_id": room_id, "door_id": did, "updated": updated}
+    if synced:
+        result["synced_room"] = synced
+    return result
+
+
+_OPPOSITE_WALL = {"top": "bottom", "bottom": "top", "left": "right", "right": "left"}
+
+
+def _sync_counterpart_door(rooms: list, room: dict, door: dict):
+    """
+    Hält das Tür-Gegenstück im Nachbarraum in Flucht: Die Türmitte beider
+    Räume zeigt im SVG auf denselben Punkt der gemeinsamen Wand.
+
+    Synchronisiert nur, wenn das Gegenstück auf der gegenüberliegenden Wand
+    liegt (typische Wand-an-Wand-Situation) und beide Räume floorplan-
+    Koordinaten haben. Gibt die Nachbar-Raum-ID zurück oder None.
+    """
+    nid = (door.get("connects_to") or "").strip()
+    if not nid:
+        return None
+    neighbor = next((r for r in rooms if r["id"] == nid), None)
+    if neighbor is None:
+        return None
+
+    wall = door.get("wall", "right")
+    counterpart = next(
+        (d for d in neighbor.get("doors", [])
+         if (d.get("connects_to") or "").strip() == room["id"]
+         and d.get("wall") == _OPPOSITE_WALL.get(wall)),
+        None,
+    )
+    if counterpart is None:
+        return None
+
+    fp_a, fp_b = room.get("floorplan"), neighbor.get("floorplan")
+    if not fp_a or not fp_b:
+        return None
+
+    width_mm = door.get("width_mm", 800)
+    pos_mm   = door.get("position_mm", 0)
+
+    if wall in ("top", "bottom"):
+        sc_a = fp_a["width"] / max(room.get("width_mm", 1), 1)
+        sc_b = fp_b["width"] / max(neighbor.get("width_mm", 1), 1)
+        center_svg = fp_a["x"] + (pos_mm + width_mm / 2) * sc_a
+        new_pos = (center_svg - fp_b["x"]) / sc_b - width_mm / 2
+        max_pos = neighbor.get("width_mm", 0) - width_mm
+    else:
+        sc_a = fp_a["height"] / max(room.get("height_mm", 1), 1)
+        sc_b = fp_b["height"] / max(neighbor.get("height_mm", 1), 1)
+        center_svg = fp_a["y"] + (pos_mm + width_mm / 2) * sc_a
+        new_pos = (center_svg - fp_b["y"]) / sc_b - width_mm / 2
+        max_pos = neighbor.get("height_mm", 0) - width_mm
+
+    counterpart["position_mm"] = round(max(0, min(max_pos, new_pos)))
+    counterpart["width_mm"]    = width_mm
+    return nid
 
 
 # ---------------------------------------------------------------------------
@@ -975,17 +1036,16 @@ def patch_door(room_id: str, did: str, body: PatchDoorRequest, request: Request)
 @router.post("/layout", status_code=200)
 def compute_and_save_layout(request: Request):
     """
-    Berechnet SVG-Floorplan-Koordinaten für alle Räume neu:
-    BFS-Traversal des Türgraphen → angrenzende Räume werden an der passenden
-    Wand platziert, sodass die Türöffnung ungefähr fluchtet.
+    Berechnet SVG-Floorplan-Koordinaten für alle Räume komplett neu.
 
-    Räume ohne Türverbindung landen in einer Reihe unterhalb des Hauptgraphen.
+    Delegiert an layout_engine (Wand-an-Wand, kein Gap, Kollisionsauflösung)
+    im fresh-Modus: vorhandene manuelle Positionen werden bewusst verworfen –
+    der Nutzer hat explizit "Auto-Layout" angefordert. Gelernte Verbindungen
+    (transition_detector) fließen zusätzlich zu den Türen ein.
 
     Schreibt die neuen floorplan-Koordinaten in rooms.json.
     """
-    SCALE = 0.05   # px / mm (1 m → 50 px – konsistent mit bisherigen Daten)
-    GAP   = 12     # px Lücke zwischen benachbarten Räumen
-    PAD   = 10     # px Außenabstand
+    from app import layout_engine, transition_detector
 
     rooms_path = CONFIG_DIR / "rooms.json"
     rooms = _load_json_file(rooms_path)
@@ -993,96 +1053,23 @@ def compute_and_save_layout(request: Request):
     if not rooms:
         return {"placed": 0, "message": "Keine Räume vorhanden"}
 
-    room_map = {r["id"]: r for r in rooms}
+    layout = layout_engine.compute(
+        rooms, transition_detector.get_connections(), fresh=True
+    )
 
-    def fp_size(room):
-        w = max(round(room.get("width_mm",  5000) * SCALE), 20)
-        h = max(round(room.get("height_mm", 4000) * SCALE), 20)
-        return w, h
-
-    placed  = {}          # room_id → (fp_x, fp_y)
-    visited = set()
-
-    # BFS-Start: erster Raum
-    first_id = rooms[0]["id"]
-    placed[first_id]  = (PAD, PAD)
-    visited.add(first_id)
-    queue = [first_id]
-
-    while queue:
-        rid  = queue.pop(0)
-        room = room_map[rid]
-        rx, ry = placed[rid]
-        rw, rh = fp_size(room)
-
-        for door in room.get("doors", []):
-            nid = (door.get("connects_to") or "").strip()
-            if not nid or nid not in room_map or nid in visited:
-                continue
-
-            neighbor    = room_map[nid]
-            nw, nh      = fp_size(neighbor)
-            wall        = door.get("wall", "right")
-            door_pos    = door.get("position_mm", 0) * SCALE
-            door_w      = door.get("width_mm", 800)  * SCALE
-            door_center = door_pos + door_w / 2
-
-            # Nachbar so platzieren, dass Türmitte im Nachbar der Türmitte im
-            # aktuellen Raum entspricht (grobe Ausrichtung)
-            if wall == "right":
-                nx = rx + rw + GAP
-                ny = ry + door_center - nh / 2
-            elif wall == "left":
-                nx = rx - GAP - nw
-                ny = ry + door_center - nh / 2
-            elif wall == "bottom":
-                ny = ry + rh + GAP
-                nx = rx + door_center - nw / 2
-            elif wall == "top":
-                ny = ry - GAP - nh
-                nx = rx + door_center - nw / 2
-            else:
-                nx = rx + rw + GAP
-                ny = ry
-
-            placed[nid] = (round(nx), round(ny))
-            visited.add(nid)
-            queue.append(nid)
-
-    # Räume ohne Verbindung: Reihe unterhalb des Hauptgraphen
-    if placed:
-        max_y = max(y + fp_size(room_map[r])[1] for r, (x, y) in placed.items())
-    else:
-        max_y = PAD
-    cur_x = PAD
     for room in rooms:
-        if room["id"] not in placed:
-            nw, nh = fp_size(room)
-            placed[room["id"]] = (cur_x, round(max_y + GAP * 3))
-            cur_x += nw + GAP
-
-    # Normalisieren: alles so verschieben, dass min_x = PAD, min_y = PAD
-    min_x = min(x for x, y in placed.values())
-    min_y = min(y for x, y in placed.values())
-    sx, sy = PAD - min_x, PAD - min_y
-    placed = {rid: (x + sx, y + sy) for rid, (x, y) in placed.items()}
-
-    # In rooms.json schreiben
-    for room in rooms:
-        rid = room["id"]
-        if rid not in placed:
-            continue
-        fx, fy = placed[rid]
-        fw, fh = fp_size(room)
-        room["floorplan"] = {"x": fx, "y": fy, "width": fw, "height": fh}
+        fp = layout.get(room["id"])
+        if fp:
+            room["floorplan"] = {"x": fp["x"], "y": fp["y"],
+                                 "width": fp["width"], "height": fp["height"]}
 
     _write_json_file(rooms_path, rooms)
     request.app.state.rooms = rooms
-    logger.info("Grundriss-Auto-Layout: %d Räume platziert", len(placed))
+    logger.info("Grundriss-Auto-Layout: %d Räume platziert", len(layout))
 
     return {
-        "placed": len(placed),
-        "layout": {rid: {"x": x, "y": y, "w": fp_size(room_map[rid])[0],
-                         "h": fp_size(room_map[rid])[1]}
-                   for rid, (x, y) in placed.items()},
+        "placed": len(layout),
+        "layout": {rid: {"x": fp["x"], "y": fp["y"],
+                         "w": fp["width"], "h": fp["height"]}
+                   for rid, fp in layout.items()},
     }

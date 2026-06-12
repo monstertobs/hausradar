@@ -185,6 +185,35 @@ def get_room_size_suggestion(sensor_id: str, request: Request):
     }
 
 
+@router.get("/sensors/{sensor_id}/auto-calibration/room-shape")
+def get_room_shape_suggestion(sensor_id: str, request: Request):
+    """Schätzt die Raumform (Polygon, z.B. L-Form) aus dem Bewegungsprofil (M25)."""
+    sensors = request.app.state.sensors
+    rooms   = request.app.state.rooms
+    sensor  = next((s for s in sensors if s["id"] == sensor_id), None)
+    if sensor is None:
+        raise HTTPException(404, f"Sensor '{sensor_id}' nicht gefunden")
+    room = next((r for r in rooms if r["id"] == sensor.get("room_id", "")), None)
+    if room is None:
+        raise HTTPException(400, "Sensor hat keinen gültigen Raum")
+
+    suggestion = auto_calibration.suggest_room_shape(sensor_id, room, sensor)
+    if suggestion is None:
+        n = auto_calibration.get_sample_count(sensor_id)
+        raise HTTPException(
+            425,
+            f"Keine Formabweichung erkennbar oder zu wenig Daten "
+            f"({n}/{auto_calibration.GOOD_SAMPLES} Messungen)."
+        )
+
+    return {
+        "sensor_id": sensor_id,
+        "room_id":   sensor.get("room_id"),
+        "current_shape": room.get("shape_points"),
+        **suggestion,
+    }
+
+
 class RoomSizeBody(BaseModel):
     width_mm:  int
     height_mm: int

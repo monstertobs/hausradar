@@ -263,3 +263,131 @@ def suggest_room_size(sensor_id: str) -> Optional[dict]:
         "quality":     quality,
         "sample_count": n,
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Raumform schätzen (M25): rektilineares Polygon aus dem Belegungsraster
+# ──────────────────────────────────────────────────────────────────────────────
+
+_SHAPE_CELL_MM      = 250    # Rasterzellengröße
+_SHAPE_MIN_COL_PTS  = 5      # Mindest-Messungen pro Spalte für eine Tiefenschätzung
+_SHAPE_MIN_COVERAGE = 0.6    # Anteil der Spalten, die Daten haben müssen
+_SHAPE_STEP_MM      = 600    # Höhenunterschied, ab dem ein Knick als echt gilt
+
+
+def suggest_room_shape(sensor_id: str, room: dict, sensor: dict) -> Optional[dict]:
+    """
+    Schätzt die Raum-FORM (z.B. L-Form) aus dem Bewegungsprofil.
+
+    Idee: Wo nie jemand war, ist Wand. Die Messpunkte werden mit der aktuellen
+    Sensor-Kalibrierung in Raumkoordinaten transformiert, in ein Spaltenraster
+    einsortiert und je Spalte die Bewegungstiefe (P95 + Wandabstand) bestimmt.
+    Benachbarte Spalten mit ähnlicher Tiefe verschmelzen zu Wandsegmenten –
+    daraus entsteht ein rektilineares Polygon (shape_points).
+
+    Gibt None zurück wenn zu wenig Daten, zu lückige Abdeckung oder die Form
+    schlicht ein Rechteck ist (dann genügen width/height).
+    """
+    with _lock:
+        buf = list(_buffers.get(sensor_id, []))
+
+    n = len(buf)
+    if n < GOOD_SAMPLES:
+        return None
+
+    w = room.get("width_mm", 0)
+    h = room.get("height_mm", 0)
+    if w < 2 * _SHAPE_CELL_MM or h < 2 * _SHAPE_CELL_MM:
+        return None
+
+    rot   = sensor.get("rotation_deg", 0)
+    sx    = sensor.get("x_mm", 0)
+    sy    = sensor.get("y_mm", 0)
+    cos_a = math.cos(math.radians(rot))
+    sin_a = math.sin(math.radians(rot))
+
+    # Messpunkte → Raumkoordinaten, je Spalte die y-Werte sammeln
+    n_cols = max(int(w // _SHAPE_CELL_MM), 2)
+    cols: List[List[float]] = [[] for _ in range(n_cols)]
+    margin = _SHAPE_CELL_MM
+    for xs, ys in buf:
+        rx = sx + xs * cos_a + ys * sin_a
+        ry = sy - xs * sin_a + ys * cos_a
+        if -margin <= rx <= w + margin and -margin <= ry <= h + margin:
+            j = min(max(int(rx // _SHAPE_CELL_MM), 0), n_cols - 1)
+            cols[j].append(ry)
+
+    covered = sum(1 for c in cols if len(c) >= _SHAPE_MIN_COL_PTS)
+    if covered / n_cols < _SHAPE_MIN_COVERAGE:
+        return None
+
+    # Tiefe je Spalte: P95 + Wandabstand; Lücken mit Nachbartiefe füllen
+    depths: List[Optional[float]] = []
+    for c in cols:
+        if len(c) >= _SHAPE_MIN_COL_PTS:
+            depths.append(min(_percentile(sorted(c), 95) + WALL_CLEARANCE_MM, h))
+        else:
+            depths.append(None)
+    for j in range(n_cols):
+        if depths[j] is None:
+            neighbors = [d for d in (depths[j - 1] if j > 0 else None,
+                                     depths[j + 1] if j < n_cols - 1 else None)
+                         if d is not None]
+            depths[j] = max(neighbors) if neighbors else h
+
+    # Spalten zu Segmenten gleicher Tiefe verschmelzen (Median, gerundet)
+    segments: List[List[float]] = []   # [x_start, x_end, depth]
+    for j, d in enumerate(depths):
+        x0, x1 = j * _SHAPE_CELL_MM, min((j + 1) * _SHAPE_CELL_MM, w)
+        if segments and abs(segments[-1][2] - d) < _SHAPE_STEP_MM:
+            seg = segments[-1]
+            seg[1] = x1
+            seg[2] = (seg[2] + d) / 2
+        else:
+            segments.append([x0, x1, d])
+
+    # Mini-Segmente (< 2 Zellen) in den Nachbarn aufgehen lassen
+    merged: List[List[float]] = []
+    for seg in segments:
+        if merged and seg[1] - seg[0] < 2 * _SHAPE_CELL_MM:
+            merged[-1][1] = seg[1]
+        else:
+            merged.append(seg)
+    segments = merged
+
+    if len(segments) < 2:
+        return None   # Rechteck – width/height reichen aus
+
+    # Tiefen auf 100 mm runden und auf Raumhöhe begrenzen
+    for seg in segments:
+        seg[2] = min(round(seg[2] / 100) * 100, h)
+    segments[-1][1] = w   # letzte Spalte exakt bis zur Raumbreite
+
+    # Rektilineares Polygon: oben (Sensorwand) entlang, rechts runter,
+    # dann die "Skyline" der Segmente von rechts nach links abfahren.
+    pts: List[List[int]] = [[0, 0], [int(w), 0]]
+    for seg in reversed(segments):
+        x0, x1, d = int(seg[0]), int(seg[1]), int(seg[2])
+        if pts[-1][1] != d:
+            pts.append([x1, d])
+        pts.append([x0, d])
+    if pts[-1] != [0, 0]:
+        pass   # Polygon wird implizit geschlossen
+    # Doppelte/kollineare Punkte entfernen
+    cleaned: List[List[int]] = []
+    for p in pts:
+        if cleaned and cleaned[-1] == p:
+            continue
+        cleaned.append(p)
+
+    n_factor   = min(1.0, n / MAX_SAMPLES)
+    cov_score  = covered / n_cols
+    confidence = round(min(1.0, 0.5 * cov_score + 0.5 * (0.4 + n_factor)), 2)
+
+    return {
+        "shape_points": cleaned,
+        "segments":     len(segments),
+        "confidence":   confidence,
+        "sample_count": n,
+        "quality":      "high" if confidence >= 0.7 else "medium",
+    }

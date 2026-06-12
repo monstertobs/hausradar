@@ -29,7 +29,8 @@ class Floorplan {
     this._sensors     = [];
     this._connections = [];   // gelernte Verbindungen aus API
     this._roomRects   = {};   // room_id → <rect> element
-    this._roomScales  = {};   // room_id → { fp, scX, scY, room }
+    this._roomLabels  = {};   // room_id → <text> element (Name + Personenzahl)
+    this._roomScales  = {};   // room_id → { fp, scX, scY, room, polySvg }
     this._calPhases   = {};   // room_id → "none"|"learning"|"improving"|"confident"
     this._connLayer   = null; // SVG-Gruppe für Verbindungslinien
     this._dwellLayer  = null; // SVG-Gruppe für Dwell-Zonen (Möbel-Heatmap)
@@ -164,31 +165,83 @@ class Floorplan {
     requestAnimationFrame(animate);
   }
 
+  /** Polygon des Raums in SVG-Koordinaten – null wenn keine shape_points. */
+  _polySvg(room) {
+    if (!room.shape_points || room.shape_points.length < 3 || !room.floorplan) return null;
+    const fp  = room.floorplan;
+    const scX = fp.width  / room.width_mm;
+    const scY = fp.height / room.height_mm;
+    return room.shape_points.map(([xMm, yMm]) => [fp.x + xMm * scX, fp.y + yMm * scY]);
+  }
+
   _roomCenter(roomId) {
     const room = this._rooms.find(r => r.id === roomId);
     if (!room || !room.floorplan) return null;
+    const poly = this._roomScales[roomId]?.polySvg;
+    if (poly) {
+      // Flächenschwerpunkt – liegt bei L-Räumen im Raum, die BBox-Mitte nicht
+      let a = 0, cx = 0, cy = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+        const cross = x1 * y2 - x2 * y1;
+        a += cross; cx += (x1 + x2) * cross; cy += (y1 + y2) * cross;
+      }
+      if (Math.abs(a) > 1e-6) return { x: cx / (3 * a), y: cy / (3 * a) };
+    }
     const fp = room.floorplan;
     return { x: fp.x + fp.width / 2, y: fp.y + fp.height / 2 };
   }
 
+  /** Nächster Punkt auf dem Polygonrand zu (px,py) inkl. Kantenrichtung. */
+  _nearestOnPoly(poly, px, py) {
+    let best = null;
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+      const dx = x2 - x1, dy = y2 - y1;
+      const len2 = dx * dx + dy * dy || 1;
+      const t  = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+      const qx = x1 + t * dx, qy = y1 + t * dy;
+      const d2 = (px - qx) ** 2 + (py - qy) ** 2;
+      if (!best || d2 < best.d2) {
+        best = { d2, x: qx, y: qy, horizontal: Math.abs(dx) >= Math.abs(dy) };
+      }
+    }
+    return best;
+  }
+
   /**
-   * Gibt den Punkt auf der Kante von roomId zurück, der am nächsten an (tx,ty) liegt.
-   * Damit starten/enden Verbindungslinien an der Raumgrenze statt in der Mitte.
+   * Gibt den Punkt auf der Raumgrenze zurück, an dem der Strahl Raummitte →
+   * (tx,ty) den Raum verlässt. Bei Polygon-Räumen (shape_points) wird die
+   * echte Kontur geschnitten, sonst die Bounding-Box.
    */
   _roomEdgePoint(roomId, tx, ty) {
     const room = this._rooms.find(r => r.id === roomId);
     if (!room || !room.floorplan) return null;
-    const { x, y, width, height } = room.floorplan;
-    const cx = x + width  / 2;
-    const cy = y + height / 2;
-    const dx = tx - cx;
-    const dy = ty - cy;
-    if (dx === 0 && dy === 0) return { x: cx, y: cy };
-    // Schnittpunkt des Vektors (cx,cy)→(tx,ty) mit dem Rechteck
+    const c = this._roomCenter(roomId);
+    const dx = tx - c.x, dy = ty - c.y;
+    if (dx === 0 && dy === 0) return c;
+
+    const poly = this._roomScales[roomId]?.polySvg;
+    if (poly) {
+      // Erster Schnittpunkt des Strahls mit einer Polygonkante
+      let bestT = Infinity;
+      for (let i = 0; i < poly.length; i++) {
+        const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+        const ex = x2 - x1, ey = y2 - y1;
+        const den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-9) continue;
+        const t = ((x1 - c.x) * ey - (y1 - c.y) * ex) / den;
+        const u = ((x1 - c.x) * dy - (y1 - c.y) * dx) / den;
+        if (t > 0 && u >= 0 && u <= 1 && t < bestT) bestT = t;
+      }
+      if (bestT < Infinity) return { x: c.x + dx * bestT, y: c.y + dy * bestT };
+    }
+
+    const { width, height } = room.floorplan;
     const scaleX = dx !== 0 ? (width  / 2) / Math.abs(dx) : Infinity;
     const scaleY = dy !== 0 ? (height / 2) / Math.abs(dy) : Infinity;
     const scale  = Math.min(scaleX, scaleY);
-    return { x: cx + dx * scale, y: cy + dy * scale };
+    return { x: c.x + dx * scale, y: c.y + dy * scale };
   }
 
   update(liveData) {
@@ -196,6 +249,7 @@ class Floorplan {
 
     const now        = Date.now();
     const roomStatus = {};
+    const roomCounts = {};
     const targets    = [];
 
     for (const [sensorId, sdata] of Object.entries(liveData.sensors)) {
@@ -211,6 +265,8 @@ class Floorplan {
       if (sdata.target_count > 0) {
         this._roomLastActive[rid] = now;
         roomStatus[rid] = "active";
+        // Mehrere Sensoren im Raum sehen dieselben Personen → Maximum statt Summe
+        roomCounts[rid] = Math.max(roomCounts[rid] || 0, sdata.target_count);
         for (const t of sdata.targets) {
           if (!t.inside_room) continue;
           targets.push(t);
@@ -245,10 +301,17 @@ class Floorplan {
         (last && now - last < this.recentTimeoutMs) ? "recent" : "idle";
     }
 
-    // Raumfarben aktualisieren
+    // Raumfarben + Personen-Badge im Label aktualisieren
     for (const [rid, st] of Object.entries(roomStatus)) {
       const rect = this._roomRects[rid];
       if (rect) rect.setAttribute("class", `room-rect room-${st}`);
+    }
+    for (const room of this._rooms) {
+      const lbl = this._roomLabels[room.id];
+      if (!lbl) continue;
+      const n = roomCounts[room.id] || 0;
+      const txt = n > 0 ? `${room.name} · ${n} 👤` : room.name;
+      if (lbl.textContent !== txt) lbl.textContent = txt;
     }
 
     // Spuren und Zielpunkte neu zeichnen
@@ -417,7 +480,7 @@ class Floorplan {
         position_mm:  newPosMm,
         width_mm:     wMm,
         connects_to:  d.el.dataset.connectsTo || "",
-      });
+      }, d.sc.polySvg);
       d.curPosMm = newPosMm;
     }
 
@@ -499,7 +562,7 @@ class Floorplan {
   }
 
   // Türkinder (gap, symbol, label) in-place neu aufbauen
-  _updateDoorElements(doorG, fp, scX, scY, door) {
+  _updateDoorElements(doorG, fp, scX, scY, door, polySvg) {
     while (doorG.firstChild) doorG.removeChild(doorG.firstChild);
 
     const GAP = 3;
@@ -531,6 +594,24 @@ class Floorplan {
       default: return;
     }
 
+    // Polygon-Räume (L-Form): Tür auf die echte Wand schnappen statt auf die
+    // Bounding-Box – sonst schwebt sie im ausgesparten Eck.
+    if (polySvg) {
+      const near = this._nearestOnPoly(polySvg, dx + dw / 2, dy + dh / 2);
+      if (near && near.d2 > 0.25) {
+        const lenPx = near.horizontal ? w * scX : w * scY;
+        if (near.horizontal) {
+          dx = near.x - lenPx / 2; dy = near.y - GAP;
+          dw = lenPx;              dh = GAP * 2 + 1;
+          lx = near.x;             ly = near.y + 9;
+        } else {
+          dx = near.x - GAP;       dy = near.y - lenPx / 2;
+          dw = GAP * 2 + 1;        dh = lenPx;
+          lx = near.x + 8;         ly = near.y;
+        }
+      }
+    }
+
     doorG.appendChild(this._el("rect", { x: dx, y: dy, width: dw, height: dh, class: "door-gap" }));
     doorG.appendChild(this._el("rect", {
       x: dx + 0.5, y: dy + 0.5,
@@ -544,7 +625,8 @@ class Floorplan {
         x: lx, y: ly, class: "door-label",
         "text-anchor": "middle", "dominant-baseline": "middle",
       });
-      lt.textContent = door.connects_to ? `→ ${door.connects_to}` : "Tür";
+      const target = this._rooms.find(r => r.id === (door.connects_to || "").trim());
+      lt.textContent = target ? `→ ${target.name}` : (door.connects_to ? `→ ${door.connects_to}` : "Tür");
       doorG.appendChild(lt);
     }
   }
@@ -554,19 +636,24 @@ class Floorplan {
   // ----------------------------------------------------------------
 
   _build() {
-    // ViewBox aus Raumdaten berechnen
-    let maxX = 0, maxY = 0;
+    // ViewBox eng um die tatsächlich belegte Fläche legen (kein toter Raum)
+    let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
     for (const r of this._rooms) {
       const fp = r.floorplan;
+      if (!fp) continue;
+      minX = Math.min(minX, fp.x);
+      minY = Math.min(minY, fp.y);
       maxX = Math.max(maxX, fp.x + fp.width);
       maxY = Math.max(maxY, fp.y + fp.height);
     }
-    const pad = 20;
-    const vw = maxX + pad;
-    const vh = maxY + pad;
+    if (minX === Infinity) { minX = 0; minY = 0; }
+    const pad = 14;
+    const vx = minX - pad, vy = minY - pad;
+    const vw = (maxX - minX) + pad * 2;
+    const vh = (maxY - minY) + pad * 2;
 
     const svg = this._el("svg", {
-      viewBox:    `0 0 ${vw} ${vh}`,
+      viewBox:    `${vx} ${vy} ${vw} ${vh}`,
       class:      "floorplan-svg",
       role:       "img",
       "aria-label": "Hausgrundriss",
@@ -587,7 +674,7 @@ class Floorplan {
 
     // Hintergrund
     svg.appendChild(this._el("rect", {
-      x: 0, y: 0, width: vw, height: vh, class: "fp-bg",
+      x: vx, y: vy, width: vw, height: vh, class: "fp-bg",
     }));
 
     // Räume (unterste Ebene)
@@ -704,9 +791,12 @@ class Floorplan {
     while (this._connLayer.firstChild) this._connLayer.removeChild(this._connLayer.firstChild);
 
     for (const conn of this._connections) {
-      // Unbestätigte (gelernte) Verbindungen nur in der Analyse-Ansicht zeigen.
-      // Bestätigte Türen (✓) bleiben immer sichtbar – sie sind echte Topologie.
-      if (!conn.confirmed && !this.showLearnedConnections) continue;
+      // Bestätigte Verbindungen werden NICHT mehr als Linie gezeichnet:
+      // die Tür in der Wand zeigt die Topologie bereits – die Querlinien
+      // samt Badges haben den Grundriss nur unruhig gemacht.
+      if (conn.confirmed) continue;
+      // Unbestätigte (gelernte) Verbindungen nur in der Analyse-Ansicht.
+      if (!this.showLearnedConnections) continue;
 
       const ca = this._roomCenter(conn.room_a);
       const cb = this._roomCenter(conn.room_b);
@@ -716,20 +806,17 @@ class Floorplan {
       const a = this._roomEdgePoint(conn.room_a, cb.x, cb.y);
       const b = this._roomEdgePoint(conn.room_b, ca.x, ca.y);
 
-      const opacity   = Math.max(0.2, conn.confidence);
-      const lineAttrs = {
+      const opacity = Math.max(0.2, conn.confidence);
+      this._connLayer.appendChild(this._el("line", {
         x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-        class: "conn-line" + (conn.confirmed ? " conn-line--confirmed" : ""),
+        class: "conn-line",
         "stroke-opacity": opacity,
-      };
-      if (!conn.confirmed) lineAttrs["stroke-dasharray"] = "4 3";
-      this._connLayer.appendChild(this._el("line", lineAttrs));
+        "stroke-dasharray": "4 3",
+      }));
 
-      // Konfidenz-Badge mittig auf der Linie
-      const mx    = (a.x + b.x) / 2;
-      const my    = (a.y + b.y) / 2;
-      const label = conn.confirmed ? "✓" : `${conn.transition_count}/10`;
-
+      // Fortschritts-Badge mittig auf der Linie (z.B. "6/10")
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
       this._connLayer.appendChild(this._el("rect", {
         x: mx - 9, y: my - 6, width: 18, height: 12,
         class: "conn-badge-bg", rx: 3,
@@ -738,7 +825,7 @@ class Floorplan {
         x: mx, y: my, class: "conn-badge",
         "text-anchor": "middle", "dominant-baseline": "middle",
       });
-      txt.textContent = label;
+      txt.textContent = `${conn.transition_count}/10`;
       this._connLayer.appendChild(txt);
     }
   }
@@ -754,8 +841,9 @@ class Floorplan {
     const scX = fp.width  / room.width_mm;
     const scY = fp.height / room.height_mm;
 
-    // Skalierungsfaktoren für Edit-Modus merken
-    this._roomScales[room.id] = { fp, scX, scY, room };
+    // Skalierungsfaktoren + Polygon (SVG-Koordinaten) für Edit-Modus merken
+    const polySvg = this._polySvg(room);
+    this._roomScales[room.id] = { fp, scX, scY, room, polySvg };
 
     // Raumform: Polygon wenn shape_points vorhanden, sonst Rechteck
     let roomShape;
@@ -773,9 +861,16 @@ class Floorplan {
     g.appendChild(roomShape);
     this._roomRects[room.id] = roomShape;
 
-    // Türen als Lücken in den Wänden (jetzt als <g> mit data-attrs)
+    // Türen als Lücken in den Wänden (jetzt als <g> mit data-attrs).
+    // Türpaare (A→B und B→A) an einer gemeinsamen Wand werden nur EINMAL
+    // gezeichnet – sonst erscheinen zwei versetzte Türen in der Wand.
     for (const door of (room.doors || [])) {
-      const doorG = this._buildDoor(fp, scX, scY, door, room.id);
+      const pair = this._doorCounterpart(room, door);
+      if (pair && this._roomsAdjacent(room, pair.neighbor, door.wall)
+               && room.id > pair.neighbor.id) {
+        continue;   // der Nachbar mit der kleineren ID zeichnet die Öffnung
+      }
+      const doorG = this._buildDoor(fp, scX, scY, door, room.id, polySvg);
       g.appendChild(doorG);
     }
 
@@ -872,7 +967,7 @@ class Floorplan {
       }
     }
 
-    // Raumname (oben zentriert)
+    // Raumname (oben zentriert) – wird in update() um Personenzahl ergänzt
     const label = this._el("text", {
       x: fp.x + fp.width / 2,
       y: fp.y + Math.min(14, fp.height * 0.22),
@@ -881,6 +976,7 @@ class Floorplan {
     });
     label.textContent = room.name;
     g.appendChild(label);
+    this._roomLabels[room.id] = label;
 
     // Kalibrierungs-Hinweis (verschwindet sobald phase==="confident")
     if (phase !== "confident") {
@@ -898,7 +994,35 @@ class Floorplan {
     svg.appendChild(g);
   }
 
-  _buildDoor(fp, scX, scY, door, roomId) {
+  /** Findet das Tür-Gegenstück im Nachbarraum (auf der gegenüberliegenden Wand). */
+  _doorCounterpart(room, door) {
+    const nid = (door.connects_to || "").trim();
+    if (!nid) return null;
+    const neighbor = this._rooms.find(r => r.id === nid);
+    if (!neighbor) return null;
+    const OPP = { top: "bottom", bottom: "top", left: "right", right: "left" };
+    const cp = (neighbor.doors || []).find(d =>
+      (d.connects_to || "").trim() === room.id && d.wall === OPP[door.wall]);
+    return cp ? { neighbor, cp } : null;
+  }
+
+  /** True wenn roomB an der angegebenen Wand von roomA anliegt (gemeinsame Wand). */
+  _roomsAdjacent(roomA, roomB, wall) {
+    const a = roomA.floorplan, b = roomB.floorplan;
+    if (!a || !b) return false;
+    const TOL = 6;
+    if (wall === "right")
+      return Math.abs((a.x + a.width) - b.x) <= TOL && a.y < b.y + b.height && b.y < a.y + a.height;
+    if (wall === "left")
+      return Math.abs(a.x - (b.x + b.width)) <= TOL && a.y < b.y + b.height && b.y < a.y + a.height;
+    if (wall === "bottom")
+      return Math.abs((a.y + a.height) - b.y) <= TOL && a.x < b.x + b.width && b.x < a.x + a.width;
+    if (wall === "top")
+      return Math.abs(a.y - (b.y + b.height)) <= TOL && a.x < b.x + b.width && b.x < a.x + a.width;
+    return false;
+  }
+
+  _buildDoor(fp, scX, scY, door, roomId, polySvg) {
     const doorAttrs = {
       class: "fp-draggable",
       "data-drag":        "door",
@@ -911,7 +1035,7 @@ class Floorplan {
     if (door.id) doorAttrs["data-id"] = door.id;
 
     const doorG = this._el("g", doorAttrs);
-    this._updateDoorElements(doorG, fp, scX, scY, door);
+    this._updateDoorElements(doorG, fp, scX, scY, door, polySvg);
     return doorG;
   }
 
